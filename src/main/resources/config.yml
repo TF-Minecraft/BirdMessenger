@@ -1,0 +1,39 @@
+coop: iaf(tfmc:bird_coop)
+letter: ia.iasurvival:letter
+
+# Flight time: distance (blocks) x seconds-per-block, clamped by min/max.
+# min-seconds still applies at 0 distance (e.g. send to yourself or no last location).
+seconds-per-block: 0.25
+min-seconds: 30
+max-seconds: 600
+# Legacy; flight ETA is distance-based (batch 3). Not used for delivery timing.
+delivery-delay-ticks: 22000
+
+gui:
+  letter-title: "Bird Messenger"
+  picker-title: "Send letter"
+  pane-name: " "
+
+discord:
+  enabled: true
+  include-sender: false
+  include-contents: false
+
+messages:
+  only-letters: "&cOnly letters can be sent by bird."
+  one-letter: "&cYou can only place one letter at a time."
+  rpc-missing: "&cCharacter mail is unavailable right now."
+  no-targets: "&cNo characters are available to send to."
+  bird-left: "&aThe bird has left with your letter. &7Estimated arrival in {time}."
+  letter-returned: "&eYour letter has been returned to you."
+  letter-cancelled: "&cLetter cancelled."
+  picker-select: "&7Click a character, then confirm."
+  picker-confirm-needed: "&cSelect a character first."
+  different-world: "&cThe bird cannot reach them from here."
+  delivered-recipient: "&bA bird lands at your feet with a letter for {character}."
+  delivered-sender: "&bYour letter was delivered!"
+  waiting-for-character: "&7Your letter is waiting until they play that character."
+  letter-pending-offline: "&7Your letter is waiting until they log in."
+  cannot-send-to-self: "&cYou cannot send a letter to your own characters."
+  discord-dm-sent: "&7They have been sent a Discord DM about your letter."
+  discord-dm-failed: "&7Could not notify them on Discord (they may not have a linked account)."

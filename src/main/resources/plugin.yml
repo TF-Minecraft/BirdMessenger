@@ -1,0 +1,20 @@
+main: net.tfminecraft.birdmessenger.BirdMessenger
+api-version: 1.21
+name: BirdMessenger
+version: 1.0
+author: MrEnzo99
+
+depend: [TLibs]
+loadbefore: [ItemsAdder]
+softdepend: [RPCharacters, TFMCWeb, ItemsAdder]
+
+commands:
+  birdmessenger:
+    description: BirdMessenger admin commands
+    usage: /birdmessenger reload
+    permission: birdmessenger.reload
+
+permissions:
+  birdmessenger.reload:
+    description: Reload BirdMessenger config.yml
+    default: op
