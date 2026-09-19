@@ -1,5 +1,12 @@
 coop: iaf(tfmc:bird_coop)
 letter: ia.iasurvival:letter
+# The default letter also accepts its sealed/opened variants on existing installs.
+# To override accepted items, set an explicit list (takes precedence over letter):
+# letters:
+#   - ia.iasurvival:letter
+#   - ia.iasurvival:letter_written_letter
+#   - ia.iasurvival:letter_open_letter
+# Right-click a mailbox to use it; sneak-break to remove it.
 
 # Flight time: distance (blocks) x seconds-per-block, clamped by min/max.
 # min-seconds still applies at 0 distance (e.g. send to yourself or no last location).

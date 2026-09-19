@@ -16,15 +16,41 @@
         <tfmc.tlibs>D:/Dokumenter/My Plugins/TFMC/TLibs</tfmc.tlibs>
         <tfmc.rpcharacters>D:/Dokumenter/My Plugins/VSCode Workspace/rpcharacters/target/rpcharacters-1.1.6.jar</tfmc.rpcharacters>
         <tfmc.builds>D:/Dokumenter/My Plugins/TFMC/BirdMessenger</tfmc.builds>
+        <tfmc.itemsadder>${tfmc.refs}/ItemsAdder.jar</tfmc.itemsadder>
     </properties>
+
+    <repositories>
+        <repository>
+            <id>spigot-snapshots</id>
+            <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
+        </repository>
+    </repositories>
 
     <dependencies>
         <dependency>
             <groupId>local</groupId>
-            <artifactId>spigot-api</artifactId>
-            <version>1.21.8</version>
+            <artifactId>ItemsAdder</artifactId>
+            <version>4.0.18</version>
             <scope>system</scope>
-            <systemPath>${tfmc.refs}/spigot-api.jar</systemPath>
+            <systemPath>${tfmc.itemsadder}</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.14.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.20.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.spigotmc</groupId>
+            <artifactId>spigot-api</artifactId>
+            <version>1.21.8-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>local</groupId>
@@ -44,6 +70,11 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.4</version>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
