@@ -28,7 +28,8 @@ public final class CoopListener implements Listener {
 	 */
 	@EventHandler(priority = EventPriority.LOWEST)
 	public void onRightClick(PlayerInteractEvent event) {
-		if (event.getAction() != Action.RIGHT_CLICK_BLOCK) {
+		if (event.getAction() != Action.RIGHT_CLICK_BLOCK
+				&& event.getAction() != Action.LEFT_CLICK_BLOCK) {
 			return;
 		}
 		Block block = event.getClickedBlock();
@@ -38,10 +39,16 @@ public final class CoopListener implements Listener {
 		if (!TLibs.getBlockAPI().getChecker().checkBlock(block, plugin.config().coopPath())) {
 			return;
 		}
+		if (event.getAction() == Action.LEFT_CLICK_BLOCK && event.getPlayer().isSneaking()) {
+			return;
+		}
 
 		event.setCancelled(true);
 		event.setUseItemInHand(Event.Result.DENY);
 		event.setUseInteractedBlock(Event.Result.DENY);
+		if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
+			return;
+		}
 
 		if (event.getHand() != EquipmentSlot.HAND) {
 			return;

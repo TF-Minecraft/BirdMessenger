@@ -9,6 +9,7 @@ import net.tfminecraft.birdmessenger.command.BirdMessengerCommand;
 import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
 import net.tfminecraft.birdmessenger.listener.CharacterActivatedListener;
 import net.tfminecraft.birdmessenger.listener.CoopListener;
+import net.tfminecraft.birdmessenger.listener.CoopFurnitureListener;
 import net.tfminecraft.birdmessenger.listener.GuiListener;
 import net.tfminecraft.birdmessenger.listener.PlayerSessionListener;
 import net.tfminecraft.birdmessenger.mail.MailService;
@@ -33,6 +34,10 @@ public final class BirdMessenger extends JavaPlugin {
 		store.load();
 		mail = new MailService(this, store);
 		Bukkit.getPluginManager().registerEvents(new CoopListener(this), this);
+		// ItemsAdder is loaded after us so our interaction cancellation runs first.
+		if (Bukkit.getPluginManager().getPlugin("ItemsAdder") != null) {
+			Bukkit.getPluginManager().registerEvents(new CoopFurnitureListener(this), this);
+		}
 		Bukkit.getPluginManager().registerEvents(new GuiListener(this), this);
 		Bukkit.getPluginManager().registerEvents(new PlayerSessionListener(this), this);
 		if (Bukkit.getPluginManager().isPluginEnabled("RPCharacters")) {

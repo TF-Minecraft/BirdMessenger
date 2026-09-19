@@ -1,5 +1,6 @@
 package net.tfminecraft.birdmessenger;
 
+import java.util.List;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -27,6 +28,18 @@ public final class BirdConfig {
 
 	public String letterPath() {
 		return yaml().getString("letter", "ia.iasurvival:letter");
+	}
+
+	public List<String> letterPaths() {
+		if (yaml().isList("letters")) {
+			return yaml().getStringList("letters");
+		}
+		String legacy = letterPath();
+		if ("ia.iasurvival:letter".equalsIgnoreCase(legacy)) {
+			return List.of(legacy, "ia.iasurvival:letter_written_letter",
+					"ia.iasurvival:letter_open_letter");
+		}
+		return List.of(legacy);
 	}
 
 	public double secondsPerBlock() {

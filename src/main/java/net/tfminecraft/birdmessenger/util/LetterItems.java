@@ -13,6 +13,11 @@ public final class LetterItems {
 		if (item == null || item.getType().isAir() || config == null) {
 			return false;
 		}
-		return TLibs.getItemAPI().getChecker().checkItemWithPath(item, config.letterPath());
+		for (String path : config.letterPaths()) {
+			if (TLibs.getItemAPI().getChecker().checkItemWithPath(item, path)) {
+				return true;
+			}
+		}
+		return false;
 	}
 }
