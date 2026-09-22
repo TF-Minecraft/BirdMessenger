@@ -1,7 +1,7 @@
 main: net.tfminecraft.birdmessenger.BirdMessenger
 api-version: 1.21
 name: BirdMessenger
-version: 1.0
+version: ${project.version}
 author: MrEnzo99
 
 depend: [TLibs]
