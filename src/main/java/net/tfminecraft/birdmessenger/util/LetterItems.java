@@ -2,7 +2,7 @@ package net.tfminecraft.birdmessenger.util;
 
 import org.bukkit.inventory.ItemStack;
 
-import me.Plugins.TLibs.TLibs;
+import net.tfminecraft.tlibs.TLibs;
 import net.tfminecraft.birdmessenger.BirdConfig;
 
 public final class LetterItems {

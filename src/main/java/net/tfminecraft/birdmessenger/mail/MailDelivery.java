@@ -7,8 +7,8 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
-import net.tfminecraft.RPCharacters.Objects.RPCharacter;
-import net.tfminecraft.RPCharacters.RPCharacters;
+import net.tfminecraft.rpcharacters.objects.RPCharacter;
+import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.BirdConfig;
 import net.tfminecraft.birdmessenger.util.ItemGive;
 

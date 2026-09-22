@@ -15,9 +15,9 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
-import net.tfminecraft.RPCharacters.RPCharacters;
-import net.tfminecraft.RPCharacters.api.CharacterSkull;
-import net.tfminecraft.RPCharacters.mail.CharacterMailTarget;
+import net.tfminecraft.rpcharacters.RPCharacters;
+import net.tfminecraft.rpcharacters.api.CharacterSkull;
+import net.tfminecraft.rpcharacters.mail.CharacterMailTarget;
 import net.tfminecraft.birdmessenger.BirdMessenger;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.session.SendSession;

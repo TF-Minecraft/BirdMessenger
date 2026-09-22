@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import dev.lone.itemsadder.api.Events.FurnitureBreakEvent;
-import me.Plugins.TLibs.TLibs;
-import me.Plugins.TLibs.Objects.API.ItemAPI;
-import me.Plugins.TLibs.Objects.API.SubAPI.ItemChecker;
+import net.tfminecraft.tlibs.TLibs;
+import net.tfminecraft.tlibs.objects.api.ItemAPI;
+import net.tfminecraft.tlibs.objects.api.subapi.ItemChecker;
 import net.tfminecraft.birdmessenger.listener.CoopFurnitureListener;
 import net.tfminecraft.birdmessenger.util.LetterItems;
 
@@ -69,8 +69,8 @@ class MailRegressionTest {
         when(event.getAction()).thenReturn(org.bukkit.event.block.Action.LEFT_CLICK_BLOCK);
         when(event.getClickedBlock()).thenReturn(block);
         when(event.getPlayer()).thenReturn(player);
-        var api = mock(me.Plugins.TLibs.Objects.API.BlockAPI.class);
-        var checker = mock(me.Plugins.TLibs.Objects.API.SubAPI.BlockChecker.class);
+        var api = mock(net.tfminecraft.tlibs.objects.api.BlockAPI.class);
+        var checker = mock(net.tfminecraft.tlibs.objects.api.subapi.BlockChecker.class);
         when(api.getChecker()).thenReturn(checker);
         when(checker.checkBlock(block, "iaf(tfmc:bird_coop)")).thenReturn(true);
         try (var tlibs = mockStatic(TLibs.class)) {
