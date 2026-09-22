@@ -114,7 +114,7 @@ public final class GuiListener implements Listener {
 				return;
 			}
 			if (LetterItems.isLetter(plugin.config(), cursor)) {
-				Bukkit.getScheduler().runTaskLater(plugin, player::closeInventory, 3L);
+				Bukkit.getScheduler().runTaskLater(plugin, () -> player.closeInventory(), 3L);
 			}
 			return;
 		}
