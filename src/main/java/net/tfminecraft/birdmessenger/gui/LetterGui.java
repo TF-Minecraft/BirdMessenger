@@ -15,6 +15,8 @@ public final class LetterGui implements InventoryHolder {
 
 	private final Inventory inventory;
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	public LetterGui(BirdMessenger plugin) {
 		this.inventory = Bukkit.createInventory(this, 9, plugin.config().letterTitle());
 		ItemStack pane = pane(plugin);
@@ -25,6 +27,8 @@ public final class LetterGui implements InventoryHolder {
 		}
 	}
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	private static ItemStack pane(BirdMessenger plugin) {
 		ItemStack pane = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
 		ItemMeta meta = pane.getItemMeta();

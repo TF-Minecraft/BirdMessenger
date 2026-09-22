@@ -34,6 +34,8 @@ public final class CharacterPickerGui implements InventoryHolder {
 	private final List<SelectedTarget> targets;
 	private final Inventory inventory;
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	public CharacterPickerGui(BirdMessenger plugin, List<SelectedTarget> targets) {
 		this.plugin = plugin;
 		this.targets = targets;
@@ -45,6 +47,8 @@ public final class CharacterPickerGui implements InventoryHolder {
 		return targets;
 	}
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	public void render(int page, SelectedTarget selected) {
 		inventory.clear();
 		int maxPage = maxPage();
@@ -85,6 +89,8 @@ public final class CharacterPickerGui implements InventoryHolder {
 		return targets.get(index);
 	}
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	private ItemStack skull(SelectedTarget target, SelectedTarget selected) {
 		ItemStack head = CharacterSkull.fromTextures(
 				target.getBaseTextureValue(), target.getBaseTextureSignature());
@@ -104,6 +110,8 @@ public final class CharacterPickerGui implements InventoryHolder {
 		return head;
 	}
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	private static ItemStack named(Material material, String name) {
 		ItemStack item = new ItemStack(material);
 		ItemMeta meta = item.getItemMeta();
