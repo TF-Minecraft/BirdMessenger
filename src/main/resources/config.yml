@@ -13,7 +13,7 @@ letter: ia.iasurvival:letter
 seconds-per-block: 0.25
 min-seconds: 30
 max-seconds: 600
-# Legacy; flight ETA is distance-based (batch 3). Not used for delivery timing.
+# Retained configuration key; flight ETA is distance-based and does not use this value.
 delivery-delay-ticks: 22000
 
 gui:
