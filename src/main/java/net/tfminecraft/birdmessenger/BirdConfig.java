@@ -165,6 +165,8 @@ public final class BirdConfig {
 		return color(yaml().getString("messages." + key, fallback));
 	}
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	public static String color(String input) {
 		if (input == null) {
 			return "";

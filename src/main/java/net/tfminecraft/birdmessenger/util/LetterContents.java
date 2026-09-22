@@ -13,6 +13,8 @@ public final class LetterContents {
 
 	private LetterContents() {}
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	public static String preview(ItemStack item, int maxLength) {
 		if (item == null || item.getType().isAir()) {
 			return null;
@@ -49,6 +51,8 @@ public final class LetterContents {
 		return joined.substring(0, cap);
 	}
 
+	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
+	@SuppressWarnings("deprecation")
 	private static String strip(String input) {
 		if (input == null) {
 			return "";
