@@ -9,7 +9,7 @@ import net.tfminecraft.birdmessenger.BirdMessenger;
 
 public final class BirdMailBridge {
 
-	private static final String GATEWAY_CLASS = "net.tfminecraft.TFMCWeb.mail.BirdMailGateway";
+	private static final String GATEWAY_CLASS = "net.tfminecraft.tfmcweb.mail.BirdMailGateway";
 
 	private BirdMailBridge() {}
 

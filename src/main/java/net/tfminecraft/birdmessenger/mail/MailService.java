@@ -82,7 +82,7 @@ public final class MailService {
 			if (player == null) {
 				continue;
 			}
-			var active = net.tfminecraft.RPCharacters.RPCharacters.getActiveCharacter(player);
+			var active = net.tfminecraft.rpcharacters.RPCharacters.getActiveCharacter(player);
 			if (active != null) {
 				tryDeliverPending(player, active.getId());
 			}

@@ -4,7 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
-import net.tfminecraft.RPCharacters.RPCharacters;
+import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.BirdConfig;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 

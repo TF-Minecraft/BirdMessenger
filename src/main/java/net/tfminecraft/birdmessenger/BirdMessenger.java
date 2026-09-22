@@ -4,7 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import net.tfminecraft.RPCharacters.RPCharacters;
+import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.command.BirdMessengerCommand;
 import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
 import net.tfminecraft.birdmessenger.listener.CharacterActivatedListener;
