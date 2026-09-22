@@ -6,12 +6,12 @@
 
     <groupId>net.tfminecraft</groupId>
     <artifactId>birdmessenger</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rpcharacters.version>2.0.0</rpcharacters.version>
+        <rpcharacters.version>2.0.1</rpcharacters.version>
         <tfmc.refs>D:/Dokumenter/My Plugins/Reference Libs</tfmc.refs>
         <tlibs.version>2.0.0</tlibs.version>
     </properties>
