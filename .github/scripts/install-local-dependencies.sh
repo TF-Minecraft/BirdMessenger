@@ -5,5 +5,5 @@ set -euo pipefail
 sha256sum --check .github/dependencies.sha256
 
 mvn -B --no-transfer-progress org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-    -Dfile="libs/ItemsAdder.jar" -DgroupId="local" -DartifactId="ItemsAdder" \
+    -Dfile="libs/ItemsAdder-4.0.18.jar" -DgroupId="local" -DartifactId="ItemsAdder" \
     -Dversion="4.0.18-tfmc-5a01b37bd744" -Dpackaging=jar -DgeneratePom=true "$@"
