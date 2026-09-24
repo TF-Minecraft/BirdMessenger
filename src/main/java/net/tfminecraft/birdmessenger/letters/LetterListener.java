@@ -1,5 +1,7 @@
 package net.tfminecraft.birdmessenger.letters;
 
+import java.util.HashMap;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -26,7 +28,7 @@ public class LetterListener implements Listener {
         this.items = new LetterItems(plugin);
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onBookSign(PlayerEditBookEvent event) {
         Player player = event.getPlayer();
         // Read from the slot the event names, not the main hand - books can be signed from the off-hand.
@@ -36,20 +38,16 @@ public class LetterListener implements Listener {
         if (slot < 0 || slot >= player.getInventory().getSize()) return;
         ItemStack handItem = player.getInventory().getItem(slot);
         if (!items.isLetter(handItem)) return;
+        ItemStack original = handItem.clone();
         if (!event.isSigning()) {
-            // Vanilla writes a plain book and quill when the editor closes. Put the
-            // unsigned letter back two ticks later, after ArmourShop's one-tick skin restore.
-            BookMeta edited = event.getNewBookMeta();
-            ItemStack previous = handItem.clone();
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (!player.isOnline()) return;
-                ItemStack restored = items.createEditedLetter(edited, previous);
-                if (restored == null) {
-                    warn("Failed to restore edited letter for " + player.getName());
-                    return;
-                }
-                player.getInventory().setItem(slot, restored);
-            }, 2L);
+            // Let vanilla apply the final event metadata. ArmourShop's MONITOR handler
+            // can still preserve custom item components while accepting these pages.
+            ItemStack restored = items.createEditedLetter(event.getNewBookMeta(), original);
+            if (restored == null) {
+                warn("Failed to restore edited letter for " + player.getName());
+                return;
+            }
+            event.setNewBookMeta((BookMeta) restored.getItemMeta());
             return;
         }
         // Cancel so the vanilla written book is never produced - we hand out our own item instead.
@@ -63,6 +61,7 @@ public class LetterListener implements Listener {
         }
         // The next-tick hop is required - setting the item inside the cancelled event does not stick.
         Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline() || !unchanged(original, player.getInventory().getItem(slot))) return;
             player.getInventory().setItem(slot, sealed);
             sendMessage(player, LetterConfig.signedMessage);
         });
@@ -80,6 +79,7 @@ public class LetterListener implements Listener {
         if (hand != EquipmentSlot.HAND && hand != EquipmentSlot.OFF_HAND) return;
         ItemStack item = event.getItem();
         if (!items.isSealedLetter(item)) return;
+        ItemStack original = item.clone();
         BookMeta current = (BookMeta) item.getItemMeta();
         if (current == null) return;
 
@@ -92,6 +92,10 @@ public class LetterListener implements Listener {
         }
         // Not cancelled - the book still opens for reading, so swap the item on the next tick.
         Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) return;
+            ItemStack held = hand == EquipmentSlot.OFF_HAND
+                    ? player.getInventory().getItemInOffHand() : player.getInventory().getItemInMainHand();
+            if (!unchangedOnOpen(original, held)) return;
             if (hand == EquipmentSlot.OFF_HAND) {
                 player.getInventory().setItemInOffHand(opened);
             } else {
@@ -99,6 +103,25 @@ public class LetterListener implements Listener {
             }
             sendMessage(player, LetterConfig.openedMessage);
         });
+    }
+
+    private static boolean unchanged(ItemStack original, ItemStack current) {
+        return current != null && original.getAmount() == current.getAmount() && original.isSimilar(current);
+    }
+
+    private static boolean unchangedOnOpen(ItemStack original, ItemStack current) {
+        if (unchanged(original, current)) return true;
+        if (current == null || original.getType() != current.getType()
+                || original.getAmount() != current.getAmount()
+                || !(original.getItemMeta() instanceof BookMeta beforeMeta)
+                || !(current.getItemMeta() instanceof BookMeta afterMeta)) return false;
+        // Vanilla may mark a book resolved during its first read. Keep every other
+        // serialized component (including pages and PDC) exact; only allow false -> true.
+        var before = new HashMap<>(beforeMeta.serialize());
+        var after = new HashMap<>(afterMeta.serialize());
+        boolean wasResolved = Boolean.TRUE.equals(before.remove("resolved"));
+        boolean nowResolved = Boolean.TRUE.equals(after.remove("resolved"));
+        return !wasResolved && nowResolved && before.equals(after);
     }
 
     private void sendMessage(Player player, String message) {
