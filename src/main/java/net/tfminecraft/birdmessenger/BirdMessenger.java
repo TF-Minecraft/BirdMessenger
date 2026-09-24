@@ -86,7 +86,7 @@ public final class BirdMessenger extends JavaPlugin {
 		return config;
 	}
 
-	/** Also used by TFMCCore's compatibility reload command. */
+	/** Reload the letter signing and opening configuration. */
 	public boolean reloadLettersConfig() {
 		return letters != null && letters.reload();
 	}
