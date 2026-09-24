@@ -31,10 +31,10 @@ public class LetterListener implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onBookSign(PlayerEditBookEvent event) {
         Player player = event.getPlayer();
-        // Read from the slot the event names, not the main hand - books can be signed from the off-hand.
-        // No replacement exposes the originating slot; retain it for deferred book restoration.
+        // Paper exposes hotbar slots directly and maps offhand inventory slot 40 to event slot -1.
         @SuppressWarnings("removal")
-        int slot = event.getSlot();
+        int eventSlot = event.getSlot();
+        int slot = eventSlot == -1 ? 40 : eventSlot;
         if (slot < 0 || slot >= player.getInventory().getSize()) return;
         ItemStack handItem = player.getInventory().getItem(slot);
         if (!items.isLetter(handItem)) return;

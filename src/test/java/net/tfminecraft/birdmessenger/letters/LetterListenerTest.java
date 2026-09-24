@@ -120,6 +120,19 @@ class LetterListenerTest {
         }
     }
 
+    @Test void invalidEventSlotsRemainIgnored() {
+        for (int slot : new int[] {-2, 41}) {
+            PlayerEditBookEvent event = editEvent(slot, true);
+            try (var factories = mockConstruction(LetterItems.class)) {
+                new LetterListener(plugin).onBookSign(event);
+                verifyNoInteractions(factories.constructed().getFirst());
+                verify(event, never()).setCancelled(anyBoolean());
+                verify(event, never()).setNewBookMeta(any());
+                verifyNoInteractions(scheduler);
+            }
+        }
+    }
+
     @Test void openingLeavesChangedHandsOrOfflinePlayersUntouched() {
         for (EquipmentSlot hand : List.of(EquipmentSlot.HAND, EquipmentSlot.OFF_HAND)) {
             for (String change : List.of("replaced", "mutated", "amount", "offline")) {
@@ -212,7 +225,8 @@ class LetterListenerTest {
     private PlayerEditBookEvent editEvent(int slot, boolean signing) {
         PlayerEditBookEvent event = mock(PlayerEditBookEvent.class);
         when(event.getPlayer()).thenReturn(player);
-        when(event.getSlot()).thenReturn(slot);
+        // Paper's packet path uses inventory slot 40, but its event factory emits -1 for offhand.
+        when(event.getSlot()).thenReturn(slot == 40 ? -1 : slot);
         when(event.isSigning()).thenReturn(signing);
         when(event.getNewBookMeta()).thenReturn(edited);
         when(inventory.getItem(slot)).thenReturn(original);
