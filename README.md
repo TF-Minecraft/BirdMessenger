@@ -8,6 +8,7 @@ BirdMessenger turns written correspondence into an in-world activity. Players se
 
 - **Character recipients** — choose and confirm a recipient through an in-game character picker connected to RPCharacters.
 - **Physical letters** — send supported blank, sealed, or opened letter items while preserving the item and its contents.
+- **Sealed correspondence** — sign letters with their own title and break the seal when opening them to read.
 - **Travel time** — delivery time follows the distance to the recipient's character location, with an estimated arrival shown to the sender.
 - **Pending deliveries** — letters wait until their recipient is online and using the correct character; in-flight mail resumes after a restart.
 - **Delivery feedback** — sender and recipient receive messages and bird-themed sound feedback as correspondence progresses.

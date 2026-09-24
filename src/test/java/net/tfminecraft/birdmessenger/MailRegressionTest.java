@@ -60,6 +60,22 @@ class MailRegressionTest {
         assertTrue(config.letterPaths().isEmpty());
     }
 
+    @Test void movedLetterPathsJoinDefaultsButNeverOverrideAnExplicitList() {
+        YamlConfiguration yaml = new YamlConfiguration();
+        BirdMessenger plugin = plugin(yaml);
+        List<String> moved = List.of("m.books.letter", "m.books.written_letter", "m.books.written_letter_open");
+        when(plugin.letterItemPaths()).thenReturn(moved);
+        assertTrue(plugin.config().letterPaths().containsAll(moved));
+        assertTrue(plugin.config().letterPaths().contains("ia.iasurvival:letter"));
+        yaml.set("letters", List.of("ia.custom:letter"));
+        assertEquals(List.of("ia.custom:letter"), plugin.config().letterPaths());
+        yaml.set("letters", List.of());
+        assertTrue(plugin.config().letterPaths().isEmpty());
+        yaml.set("letters", null);
+        yaml.set("letter", "ia.custom:legacy");
+        assertEquals(List.of("ia.custom:legacy"), plugin.config().letterPaths());
+    }
+
     @Test void leftClickIsCancelledButSneakBreakingAndOtherBlocksAreNot() {
         var plugin = plugin(new YamlConfiguration());
         var listener = new net.tfminecraft.birdmessenger.listener.CoopListener(plugin);

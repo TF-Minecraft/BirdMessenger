@@ -32,6 +32,11 @@ public final class BirdMessengerCommand implements CommandExecutor, TabCompleter
 		}
 		plugin.config().reload();
 		sender.sendMessage("§a[BirdMessenger] Reloaded config.yml.");
+		if (plugin.reloadLettersConfig()) {
+			sender.sendMessage("§a[BirdMessenger] Reloaded letters-config.yml.");
+		} else {
+			sender.sendMessage("§c[BirdMessenger] Letters configuration was not reloaded; see the server log.");
+		}
 		if (plugin.config().discordEnabled()) {
 			if (Bukkit.getPluginManager().isPluginEnabled("TFMCWeb")) {
 				sender.sendMessage("§7Discord notify: §aenabled§7 (TFMCWeb loaded).");
