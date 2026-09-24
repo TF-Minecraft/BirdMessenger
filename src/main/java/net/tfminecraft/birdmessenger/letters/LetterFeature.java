@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -36,7 +37,7 @@ public final class LetterFeature {
                     ? core.getDataFolder().toPath().resolve("letters-config.yml")
                     : plugin.getDataFolder().toPath().resolveSibling("TFMCCore").resolve("letters-config.yml");
             migrateConfig(legacy, destination);
-            if (!Files.exists(destination)) {
+            if (Files.notExists(destination)) {
                 plugin.saveResource("letters-config.yml", false);
             }
             if (!LetterConfigLoader.load(destination.toFile(), plugin.getLogger())) {
@@ -65,11 +66,24 @@ public final class LetterFeature {
     }
 
     static void migrateConfig(Path legacy, Path destination) throws IOException, InvalidConfigurationException {
-        if (Files.exists(destination) || !Files.exists(legacy)) return;
+        if (!Files.notExists(destination)) {
+            if (!Files.isRegularFile(destination)) throw new IOException("Not a readable config file: " + destination);
+            return;
+        }
+        if (Files.notExists(legacy)) return;
+        if (!Files.isRegularFile(legacy)) throw new IOException("Not a readable legacy config file: " + legacy);
         // Validate before copying; a broken source must never become a fresh default config.
         new YamlConfiguration().load(legacy.toFile());
         Files.createDirectories(destination.getParent());
-        Files.copy(legacy, destination);
+        Path temporary = Files.createTempFile(destination.getParent(), ".letters-migration-", ".tmp");
+        try {
+            Files.copy(legacy, temporary, StandardCopyOption.REPLACE_EXISTING);
+            new YamlConfiguration().load(temporary.toFile());
+            // Publish only the complete, validated copy; never overwrite a destination created meanwhile.
+            Files.move(temporary, destination);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     public List<String> itemPaths() {

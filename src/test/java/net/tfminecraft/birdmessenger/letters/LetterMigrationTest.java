@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.logging.Logger;
 
 import org.bukkit.Server;
@@ -43,6 +45,66 @@ class LetterMigrationTest {
         assertThrows(InvalidConfigurationException.class, () -> LetterFeature.migrateConfig(old, current));
         assertFalse(Files.exists(current));
         assertEquals("items: [broken\n", Files.readString(old));
+    }
+
+    @Test void interruptedCopyLeavesNoPartialDestinationAndRetryPreservesCompleteSource() throws Exception {
+        Path old = root.resolve("old.yml");
+        Path current = root.resolve("BirdMessenger/letters-config.yml");
+        String original = "items:\n  letter: m.books.custom\nsettings:\n  hide-author: false\n";
+        Files.writeString(old, original);
+        try (var files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+            files.when(() -> Files.copy(eq(old), any(Path.class), eq(StandardCopyOption.REPLACE_EXISTING)))
+                    .thenAnswer(invocation -> {
+                        // A truncated prefix can still be valid YAML, so it must never become authoritative.
+                        Files.writeString(invocation.getArgument(1), "items:\n");
+                        throw new IOException("Interrupted copy");
+                    });
+            assertThrows(IOException.class, () -> LetterFeature.migrateConfig(old, current));
+        }
+        assertFalse(Files.exists(current));
+        try (var remaining = Files.list(current.getParent())) {
+            assertEquals(0, remaining.count());
+        }
+        LetterFeature.migrateConfig(old, current);
+        assertEquals(original, Files.readString(current));
+        assertEquals(original, Files.readString(old));
+    }
+
+    @Test void validatesCopiedBytesAndNeverOverwritesAnArrivingDestination() throws Exception {
+        Path old = root.resolve("old.yml");
+        Path current = root.resolve("BirdMessenger/letters-config.yml");
+        Files.writeString(old, "items:\n  letter: m.books.custom\n");
+        try (var files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+            files.when(() -> Files.copy(eq(old), any(Path.class), eq(StandardCopyOption.REPLACE_EXISTING)))
+                    .thenAnswer(invocation -> Files.writeString(invocation.getArgument(1), "items: [broken\n"));
+            assertThrows(InvalidConfigurationException.class, () -> LetterFeature.migrateConfig(old, current));
+        }
+        assertFalse(Files.exists(current));
+        try (var files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+            files.when(() -> Files.copy(eq(old), any(Path.class), eq(StandardCopyOption.REPLACE_EXISTING)))
+                    .thenAnswer(invocation -> {
+                        Object copied = invocation.callRealMethod();
+                        Files.writeString(current, "items: {letter: ia.owner:custom}\n");
+                        return copied;
+                    });
+            assertThrows(java.nio.file.FileAlreadyExistsException.class,
+                    () -> LetterFeature.migrateConfig(old, current));
+        }
+        assertEquals("items: {letter: ia.owner:custom}\n", Files.readString(current));
+        try (var remaining = Files.list(current.getParent())) {
+            assertEquals(1, remaining.count());
+        }
+    }
+
+    @Test void ambiguousSourceAvailabilityFailsInsteadOfInstallingDefaults() throws Exception {
+        Path old = root.resolve("old.yml");
+        Path current = root.resolve("BirdMessenger/letters-config.yml");
+        try (var files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+            // Both exists/notExists can be false when the filesystem cannot determine availability.
+            files.when(() -> Files.notExists(old)).thenReturn(false);
+            assertThrows(IOException.class, () -> LetterFeature.migrateConfig(old, current));
+        }
+        assertFalse(Files.exists(current));
     }
 
     @Test void mixedVersionsRequireExplicitOwnershipHandoff() throws Exception {
