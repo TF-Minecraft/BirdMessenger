@@ -6,7 +6,7 @@
 
     <groupId>net.tfminecraft</groupId>
     <artifactId>birdmessenger</artifactId>
-    <version>main-SNAPSHOT</version>
+    <version>1.1.0</version>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>

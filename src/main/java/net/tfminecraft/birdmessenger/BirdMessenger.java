@@ -16,6 +16,7 @@ import net.tfminecraft.birdmessenger.mail.MailService;
 import net.tfminecraft.birdmessenger.mail.MailStore;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.session.SendSessionManager;
+import net.tfminecraft.birdmessenger.letters.LetterFeature;
 
 import java.util.List;
 
@@ -24,11 +25,14 @@ public final class BirdMessenger extends JavaPlugin {
 	private BirdConfig config;
 	private SendSessionManager sessions;
 	private MailService mail;
+	private LetterFeature letters;
 
 	@Override
 	public void onEnable() {
 		saveDefaultConfig();
 		config = new BirdConfig(this);
+		letters = new LetterFeature(this);
+		letters.reload();
 		sessions = new SendSessionManager(this);
 		MailStore store = new MailStore(this);
 		store.load();
@@ -69,6 +73,9 @@ public final class BirdMessenger extends JavaPlugin {
 
 	@Override
 	public void onDisable() {
+		if (letters != null) {
+			letters.close();
+		}
 		if (mail != null) {
 			mail.store().saveAll();
 		}
@@ -77,6 +84,15 @@ public final class BirdMessenger extends JavaPlugin {
 
 	public BirdConfig config() {
 		return config;
+	}
+
+	/** Also used by TFMCCore's compatibility reload command. */
+	public boolean reloadLettersConfig() {
+		return letters != null && letters.reload();
+	}
+
+	public List<String> letterItemPaths() {
+		return letters == null ? List.of() : letters.itemPaths();
 	}
 
 	public SendSessionManager sessions() {

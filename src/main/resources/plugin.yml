@@ -16,5 +16,5 @@ commands:
 
 permissions:
   birdmessenger.reload:
-    description: Reload BirdMessenger config.yml
+    description: Reload BirdMessenger config.yml and letters-config.yml
     default: op
