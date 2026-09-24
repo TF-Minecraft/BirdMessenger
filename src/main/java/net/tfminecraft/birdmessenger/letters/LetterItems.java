@@ -136,11 +136,7 @@ public class LetterItems {
     }
 
     private static void copyPdc(ItemMeta from, ItemMeta to) {
-        try {
-            from.getPersistentDataContainer().copyTo(to.getPersistentDataContainer(), true);
-        } catch (NoSuchMethodError | UnsupportedOperationException ignored) {
-            // Older API without copyTo. Name and lore are already copied.
-        }
+        from.getPersistentDataContainer().copyTo(to.getPersistentDataContainer(), true);
     }
 
     // Keep the existing legacy text representation, formatting, and exact-string comparisons.
