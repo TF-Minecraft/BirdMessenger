@@ -22,7 +22,7 @@ import net.tfminecraft.tlibs.objects.api.ItemAPI;
 
 class LetterItemsTest {
     private LetterItems items;
-    private static final NamespacedKey LEGACY_KEY = NamespacedKey.fromString("tfmccore:sealed_letter");
+    private static final NamespacedKey SEALED_KEY = NamespacedKey.fromString("tfmccore:sealed_letter");
 
     @BeforeEach void setup() {
         BirdMessenger plugin = mock(BirdMessenger.class);
@@ -32,7 +32,7 @@ class LetterItemsTest {
         LetterConfig.useTitleAsName = true;
     }
 
-    @Test void recognizesExistingCoreSealsAndRejectsUntaggedBooks() {
+    @Test void recognizesPersistentSealsAndRejectsUntaggedBooks() {
         ItemStack book = mock(ItemStack.class);
         BookMeta meta = mock(BookMeta.class);
         PersistentDataContainer pdc = mock(PersistentDataContainer.class);
@@ -40,13 +40,13 @@ class LetterItemsTest {
         when(book.hasItemMeta()).thenReturn(true);
         when(book.getItemMeta()).thenReturn(meta);
         when(meta.getPersistentDataContainer()).thenReturn(pdc);
-        when(pdc.has(LEGACY_KEY, PersistentDataType.BYTE)).thenReturn(true);
+        when(pdc.has(SEALED_KEY, PersistentDataType.BYTE)).thenReturn(true);
         assertTrue(items.isSealedLetter(book));
-        when(pdc.has(LEGACY_KEY, PersistentDataType.BYTE)).thenReturn(false);
+        when(pdc.has(SEALED_KEY, PersistentDataType.BYTE)).thenReturn(false);
         assertFalse(items.isSealedLetter(book));
     }
 
-    @Test void sealingPreservesPagesTitleAuthorAndWritesLegacyNamespace() {
+    @Test void sealingPreservesPagesTitleAuthorAndWritesStableKey() {
         ItemAPI api = mock(ItemAPI.class, RETURNS_DEEP_STUBS);
         ItemStack template = mock(ItemStack.class);
         ItemStack sealed = mock(ItemStack.class);
@@ -66,7 +66,7 @@ class LetterItemsTest {
             verify(target).setTitle("Treaty");
             verify(target).setDisplayName("Treaty");
             verify(target).setAuthor("Alice");
-            verify(pdc).set(LEGACY_KEY, PersistentDataType.BYTE, (byte) 1);
+            verify(pdc).set(SEALED_KEY, PersistentDataType.BYTE, (byte) 1);
             verify(template, never()).setItemMeta(any());
         }
     }

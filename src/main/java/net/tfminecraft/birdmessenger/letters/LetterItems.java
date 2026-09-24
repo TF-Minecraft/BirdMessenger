@@ -21,7 +21,7 @@ public class LetterItems {
 
     public LetterItems(BirdMessenger plugin) {
         this.plugin = plugin;
-        // Existing books keep this namespace across the ownership move.
+        // Stable item identifier: changing this key would invalidate existing seals.
         sealedLetterKey = NamespacedKey.fromString("tfmccore:sealed_letter");
     }
 
