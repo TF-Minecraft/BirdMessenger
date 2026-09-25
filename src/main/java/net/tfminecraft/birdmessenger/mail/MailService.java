@@ -10,6 +10,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
+import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.util.ItemGive;
 
@@ -43,6 +44,14 @@ public final class MailService {
 		if (sender.getUniqueId().equals(target.getOwnerUuid())) {
 			ItemGive.giveOrDrop(sender, letter);
 			sender.sendMessage(plugin.config().msgCannotSendToSelf());
+			return false;
+		}
+		boolean listed = RPCharacters.listMailTargets().stream().anyMatch(recipient ->
+				target.getOwnerUuid().equals(recipient.getOwnerUuid())
+						&& target.getCharacterId().equals(recipient.getCharacterId()));
+		if (!listed) {
+			ItemGive.giveOrDrop(sender, letter);
+			sender.sendMessage(plugin.config().msgRecipientUnavailable());
 			return false;
 		}
 		Integer flightSeconds = FlightTime.computeFlightSecondsAtSend(plugin.config(), sender, target);

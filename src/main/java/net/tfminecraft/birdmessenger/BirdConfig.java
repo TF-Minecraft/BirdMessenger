@@ -124,6 +124,10 @@ public final class BirdConfig {
 		return message("picker-confirm-needed", "&cSelect a character first.");
 	}
 
+	public String msgRecipientUnavailable() {
+		return message("recipient-unavailable", "&cThat character is no longer available for mail. Your letter has been returned.");
+	}
+
 	public String msgDifferentWorld() {
 		return message("different-world", "&cThe bird cannot reach them from here.");
 	}

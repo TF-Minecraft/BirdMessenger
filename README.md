@@ -7,6 +7,7 @@ BirdMessenger turns written correspondence into an in-world activity. Players se
 ## Features
 
 - **Character recipients** — choose and confirm a recipient through an in-game character picker connected to RPCharacters.
+- **Recipient opt-out** — players can use `/rpcharacter mail off` in RPCharacters to hide their active character from the recipient list, or `/rpcharacter mail on` to restore it. If a recipient opts out before a sender confirms, the letter is returned; already-sent mail still arrives.
 - **Physical letters** — send supported blank, sealed, or opened letter items while preserving the item and its contents.
 - **Sealed correspondence** — sign letters with their own title and break the seal when opening them to read.
 - **Travel time** — delivery time follows the distance to the recipient's character location, with an estimated arrival shown to the sender.
