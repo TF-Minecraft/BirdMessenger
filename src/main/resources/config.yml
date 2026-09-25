@@ -36,6 +36,7 @@ messages:
   letter-cancelled: "&cLetter cancelled."
   picker-select: "&7Click a character, then confirm."
   picker-confirm-needed: "&cSelect a character first."
+  recipient-unavailable: "&cThat character is no longer available for mail. Your letter has been returned."
   different-world: "&cThe bird cannot reach them from here."
   delivered-recipient: "&bA bird lands at your feet with a letter for {character}."
   delivered-sender: "&bYour letter was delivered!"
