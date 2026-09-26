@@ -18,8 +18,6 @@ import org.junit.jupiter.api.Test;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
 import net.tfminecraft.birdmessenger.BirdConfig;
-import net.md_5.bungee.api.chat.BaseComponent;
-import net.md_5.bungee.api.chat.TextComponent;
 import net.tfminecraft.tlibs.TLibs;
 import net.tfminecraft.tlibs.objects.api.ItemAPI;
 
@@ -98,26 +96,21 @@ class LetterItemsTest {
     }
 
     @SuppressWarnings("deprecation")
-    @Test void editingClonesTheOriginalItemAndChangesOnlyRichPagesWithoutATemplate() {
+    @Test void editingClonesTheOriginalItemAndPreservesExactPageTextWithoutATemplate() {
         ItemStack previous = mock(ItemStack.class);
         ItemStack edited = mock(ItemStack.class);
         BookMeta target = mock(BookMeta.class);
         BookMeta source = mock(BookMeta.class);
-        BookMeta.Spigot targetPages = mock(BookMeta.Spigot.class);
-        BookMeta.Spigot sourcePages = mock(BookMeta.Spigot.class);
-        List<BaseComponent[]> pages = List.<BaseComponent[]>of(new BaseComponent[] {
-                new TextComponent("Edited letter with formatting")});
+        List<String> pages = List.of("Letter with trailing reset §r", "§aGreen\nSecond line", "");
         when(previous.clone()).thenReturn(edited);
         when(edited.getItemMeta()).thenReturn(target);
-        when(target.spigot()).thenReturn(targetPages);
-        when(source.spigot()).thenReturn(sourcePages);
-        when(sourcePages.getPages()).thenReturn(pages);
+        when(source.getPages()).thenReturn(pages);
         try (var tlibs = mockStatic(TLibs.class)) {
             assertSame(edited, items.createEditedLetter(source, previous));
             verify(previous).clone();
             verifyNoMoreInteractions(previous);
-            verify(targetPages).setPages(pages);
-            verify(target).spigot();
+            verify(target).setPages(pages);
+            verify(source, never()).spigot();
             verifyNoMoreInteractions(target);
             verify(edited).setItemMeta(target);
             verify(edited, never()).setAmount(anyInt());

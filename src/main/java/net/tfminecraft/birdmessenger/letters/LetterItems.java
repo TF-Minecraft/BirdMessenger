@@ -77,7 +77,8 @@ public class LetterItems {
             ItemStack stack = previous.clone();
             BookMeta meta = (BookMeta) stack.getItemMeta();
             if (meta == null) return null;
-            meta.spigot().setPages(source.spigot().getPages());
+            // Writable books store raw strings; component conversion can change formatting codes.
+            meta.setPages(source.getPages());
             stack.setItemMeta(meta);
             return stack;
         } catch (Exception ex) {
