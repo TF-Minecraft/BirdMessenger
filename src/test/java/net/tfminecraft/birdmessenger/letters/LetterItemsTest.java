@@ -17,6 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
+import net.tfminecraft.birdmessenger.BirdConfig;
+import net.md_5.bungee.api.chat.BaseComponent;
+import net.md_5.bungee.api.chat.TextComponent;
 import net.tfminecraft.tlibs.TLibs;
 import net.tfminecraft.tlibs.objects.api.ItemAPI;
 
@@ -94,33 +97,55 @@ class LetterItemsTest {
         }
     }
 
-    @Test void editingPreservesExistingNameLorePdcAndStackSize() {
-        ItemAPI api = mock(ItemAPI.class, RETURNS_DEEP_STUBS);
-        ItemStack template = mock(ItemStack.class);
-        ItemStack edited = mock(ItemStack.class);
+    @SuppressWarnings("deprecation")
+    @Test void editingClonesTheOriginalItemAndChangesOnlyRichPagesWithoutATemplate() {
         ItemStack previous = mock(ItemStack.class);
+        ItemStack edited = mock(ItemStack.class);
         BookMeta target = mock(BookMeta.class);
-        BookMeta old = mock(BookMeta.class);
-        PersistentDataContainer oldPdc = mock(PersistentDataContainer.class);
-        PersistentDataContainer newPdc = mock(PersistentDataContainer.class);
-        when(api.getCreator().getItemFromPath(LetterConfig.letterPath)).thenReturn(template);
-        when(template.clone()).thenReturn(edited);
+        BookMeta source = mock(BookMeta.class);
+        BookMeta.Spigot targetPages = mock(BookMeta.Spigot.class);
+        BookMeta.Spigot sourcePages = mock(BookMeta.Spigot.class);
+        List<BaseComponent[]> pages = List.<BaseComponent[]>of(new BaseComponent[] {
+                new TextComponent("Edited letter with formatting")});
+        when(previous.clone()).thenReturn(edited);
         when(edited.getItemMeta()).thenReturn(target);
-        when(previous.getItemMeta()).thenReturn(old);
-        when(previous.getAmount()).thenReturn(2);
-        when(old.hasDisplayName()).thenReturn(true);
-        when(old.getDisplayName()).thenReturn("Custom name");
-        when(old.hasLore()).thenReturn(true);
-        when(old.getLore()).thenReturn(List.of("Custom lore"));
-        when(old.getPersistentDataContainer()).thenReturn(oldPdc);
-        when(target.getPersistentDataContainer()).thenReturn(newPdc);
+        when(target.spigot()).thenReturn(targetPages);
+        when(source.spigot()).thenReturn(sourcePages);
+        when(sourcePages.getPages()).thenReturn(pages);
         try (var tlibs = mockStatic(TLibs.class)) {
+            assertSame(edited, items.createEditedLetter(source, previous));
+            verify(previous).clone();
+            verifyNoMoreInteractions(previous);
+            verify(targetPages).setPages(pages);
+            verify(target).spigot();
+            verifyNoMoreInteractions(target);
+            verify(edited).setItemMeta(target);
+            verify(edited, never()).setAmount(anyInt());
+            tlibs.verifyNoInteractions();
+        }
+    }
+
+    @Test void editableLettersIncludeMailConfigurationWithoutBroadeningSigning() {
+        BirdMessenger plugin = mock(BirdMessenger.class);
+        BirdConfig config = mock(BirdConfig.class);
+        when(plugin.config()).thenReturn(config);
+        ItemAPI api = mock(ItemAPI.class, RETURNS_DEEP_STUBS);
+        ItemStack letter = mock(ItemStack.class);
+        when(letter.getType()).thenReturn(Material.WRITABLE_BOOK);
+        try (var tlibs = mockStatic(TLibs.class);
+             var mail = mockStatic(net.tfminecraft.birdmessenger.util.LetterItems.class)) {
             tlibs.when(TLibs::getItemAPI).thenReturn(api);
-            assertSame(edited, items.createEditedLetter(source(), previous));
-            verify(edited).setAmount(2);
-            verify(target).setDisplayName("Custom name");
-            verify(target).setLore(List.of("Custom lore"));
-            verify(oldPdc).copyTo(newPdc, true);
+            mail.when(() -> net.tfminecraft.birdmessenger.util.LetterItems.isLetter(config, letter))
+                    .thenReturn(true);
+            LetterItems configured = new LetterItems(plugin);
+            assertTrue(configured.isEditableLetter(letter));
+            assertFalse(configured.isLetter(letter));
+            mail.when(() -> net.tfminecraft.birdmessenger.util.LetterItems.isLetter(config, letter))
+                    .thenReturn(false);
+            assertFalse(configured.isEditableLetter(letter));
+            when(letter.getType()).thenReturn(Material.WRITTEN_BOOK);
+            assertFalse(configured.isEditableLetter(letter));
+            assertFalse(configured.isEditableLetter(null));
         }
     }
 
