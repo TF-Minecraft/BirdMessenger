@@ -59,47 +59,53 @@ class LetterListenerTest {
                 .when(scheduler).runTaskLater(eq(plugin), any(Runnable.class), anyLong());
     }
 
-    @Test void unsignedEditsUseEventMetadataInEitherHandWithoutDelayedInventoryWrites() {
+    @Test void unsignedEditsCancelVanillaAndRestoreOnlyTheOriginalSlot() {
         for (int slot : new int[] {0, 40}) {
+            setup();
             PlayerEditBookEvent event = editEvent(slot, false);
-            BookMeta restored = mock(BookMeta.class);
-            when(replacement.getItemMeta()).thenReturn(restored);
             try (var bukkit = mockStatic(Bukkit.class);
                  var factories = mockConstruction(LetterItems.class, (items, context) -> {
                      when(items.isLetter(original)).thenReturn(true);
+                     when(items.isEditableLetter(original)).thenReturn(true);
                      when(items.createEditedLetter(edited, snapshot)).thenReturn(replacement);
                  })) {
                 bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
                 new LetterListener(plugin).onBookSign(event);
-                verify(event).setNewBookMeta(restored);
+                verify(event).setCancelled(true);
+                verify(event, never()).setNewBookMeta(any());
                 verify(inventory, never()).setItem(anyInt(), any());
-                verifyNoInteractions(scheduler);
+                pending.getLast().run();
+                verify(inventory).setItem(slot, replacement);
             }
         }
     }
 
-    @Test void signingLeavesMovedReplacedOrChangedStacksUntouched() {
-        for (int slot : new int[] {0, 40}) {
-            for (String change : List.of("moved", "replaced", "mutated", "amount", "offline")) {
-                setup();
-                PlayerEditBookEvent event = editEvent(slot, true);
-                try (var bukkit = mockStatic(Bukkit.class);
-                     var factories = mockConstruction(LetterItems.class, (items, context) -> {
-                         when(items.isLetter(original)).thenReturn(true);
-                         when(items.createSealedLetter(edited, player)).thenReturn(replacement);
-                     })) {
-                    bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
-                    new LetterListener(plugin).onBookSign(event);
-                    verify(event).setCancelled(true);
-                    switch (change) {
-                        case "moved" -> when(inventory.getItem(slot)).thenReturn(null);
-                        case "replaced" -> when(inventory.getItem(slot)).thenReturn(mock(ItemStack.class));
-                        case "mutated" -> when(snapshot.isSimilar(original)).thenReturn(false);
-                        case "amount" -> when(original.getAmount()).thenReturn(2);
-                        case "offline" -> when(player.isOnline()).thenReturn(false);
+    @Test void savingLeavesMovedReplacedOrChangedStacksUntouched() {
+        for (boolean signing : new boolean[] {false, true}) {
+            for (int slot : new int[] {0, 40}) {
+                for (String change : List.of("moved", "replaced", "mutated", "amount", "offline")) {
+                    setup();
+                    PlayerEditBookEvent event = editEvent(slot, signing);
+                    try (var bukkit = mockStatic(Bukkit.class);
+                         var factories = mockConstruction(LetterItems.class, (items, context) -> {
+                             when(items.isLetter(original)).thenReturn(true);
+                             when(items.isEditableLetter(original)).thenReturn(true);
+                             when(items.createSealedLetter(edited, player)).thenReturn(replacement);
+                             when(items.createEditedLetter(edited, snapshot)).thenReturn(replacement);
+                         })) {
+                        bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
+                        new LetterListener(plugin).onBookSign(event);
+                        verify(event).setCancelled(true);
+                        switch (change) {
+                            case "moved" -> when(inventory.getItem(slot)).thenReturn(null);
+                            case "replaced" -> when(inventory.getItem(slot)).thenReturn(mock(ItemStack.class));
+                            case "mutated" -> when(snapshot.isSimilar(original)).thenReturn(false);
+                            case "amount" -> when(original.getAmount()).thenReturn(2);
+                            case "offline" -> when(player.isOnline()).thenReturn(false);
+                        }
+                        pending.getLast().run();
+                        verify(inventory, never()).setItem(anyInt(), any());
                     }
-                    pending.getLast().run();
-                    verify(inventory, never()).setItem(anyInt(), any());
                 }
             }
         }
@@ -117,6 +123,32 @@ class LetterListenerTest {
             pending.getLast().run();
             verify(inventory).setItem(40, replacement);
             verify(original).clone();
+        }
+    }
+
+    @Test void failedUnsignedSaveKeepsTheOriginalLetterAndCancelsTheDestructiveWrite() {
+        PlayerEditBookEvent event = editEvent(0, false);
+        try (var factories = mockConstruction(LetterItems.class, (items, context) -> {
+            when(items.isEditableLetter(original)).thenReturn(true);
+        })) {
+            new LetterListener(plugin).onBookSign(event);
+            verify(event).setCancelled(true);
+            verify(event, never()).setNewBookMeta(any());
+            verify(inventory, never()).setItem(anyInt(), any());
+            verifyNoInteractions(scheduler);
+        }
+    }
+
+    @Test void ordinaryBooksAreLeftToVanilla() {
+        for (boolean signing : new boolean[] {false, true}) {
+            PlayerEditBookEvent event = editEvent(0, signing);
+            try (var factories = mockConstruction(LetterItems.class)) {
+                new LetterListener(plugin).onBookSign(event);
+                verify(event, never()).setCancelled(anyBoolean());
+                verify(event, never()).setNewBookMeta(any());
+                verify(inventory, never()).setItem(anyInt(), any());
+                verifyNoInteractions(scheduler);
+            }
         }
     }
 

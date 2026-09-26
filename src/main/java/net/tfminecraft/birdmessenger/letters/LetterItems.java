@@ -1,13 +1,10 @@
 package net.tfminecraft.birdmessenger.letters;
 
-import java.util.ArrayList;
-
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
 import net.tfminecraft.tlibs.TLibs;
@@ -34,6 +31,13 @@ public class LetterItems {
             warn("Failed to validate letter: " + ex.getMessage());
             return false;
         }
+    }
+
+    public boolean isEditableLetter(ItemStack item) {
+        if (item == null || item.getType() != Material.WRITABLE_BOOK) return false;
+        // Mail may accept a different provider's blank letter than the sealing template.
+        return isLetter(item)
+                || net.tfminecraft.birdmessenger.util.LetterItems.isLetter(plugin.config(), item);
     }
 
     public boolean isSealedLetter(ItemStack item) {
@@ -66,36 +70,16 @@ public class LetterItems {
         }
     }
 
-    /**
-     * Unsigned letter after an edit (not a sign). Fresh template so the skin
-     * survives vanilla's plain book write, with the new pages and the previous
-     * display name, lore, and PDC.
-     */
-    // Keep the existing legacy text representation, formatting, and exact-string comparisons.
+    /** Preserve the complete original letter, replacing only its edited pages. */
     @SuppressWarnings("deprecation")
     public ItemStack createEditedLetter(BookMeta source, ItemStack previous) {
         try {
-            ItemStack stack = template(LetterConfig.letterPath);
-            if (stack == null) return null;
-            int amount = previous != null ? Math.max(1, previous.getAmount()) : 1;
-            stack.setAmount(amount);
+            ItemStack stack = previous.clone();
             BookMeta meta = (BookMeta) stack.getItemMeta();
-            if (meta != null) {
-                if (source != null) {
-                    meta.setPages(source.getPages());
-                }
-                ItemMeta prevMeta = previous != null ? previous.getItemMeta() : null;
-                if (prevMeta != null) {
-                    if (prevMeta.hasDisplayName()) {
-                        meta.setDisplayName(prevMeta.getDisplayName());
-                    }
-                    if (prevMeta.hasLore() && prevMeta.getLore() != null) {
-                        meta.setLore(new ArrayList<>(prevMeta.getLore()));
-                    }
-                    copyPdc(prevMeta, meta);
-                }
-                stack.setItemMeta(meta);
-            }
+            if (meta == null) return null;
+            // Writable books store raw strings; component conversion can change formatting codes.
+            meta.setPages(source.getPages());
+            stack.setItemMeta(meta);
             return stack;
         } catch (Exception ex) {
             warn("Failed to restore edited letter: " + ex.getMessage());
@@ -133,10 +117,6 @@ public class LetterItems {
             return null;
         }
         return stack.clone();
-    }
-
-    private static void copyPdc(ItemMeta from, ItemMeta to) {
-        from.getPersistentDataContainer().copyTo(to.getPersistentDataContainer(), true);
     }
 
     // Keep the existing legacy text representation, formatting, and exact-string comparisons.

@@ -37,22 +37,25 @@ public class LetterListener implements Listener {
         int slot = eventSlot == -1 ? 40 : eventSlot;
         if (slot < 0 || slot >= player.getInventory().getSize()) return;
         ItemStack handItem = player.getInventory().getItem(slot);
-        if (!items.isLetter(handItem)) return;
+        if (event.isSigning() ? !items.isLetter(handItem) : !items.isEditableLetter(handItem)) return;
         ItemStack original = handItem.clone();
+        // ItemsAdder rebuilds BookMeta at MONITOR, losing custom item identity.
+        // Own the save for both edits and signatures so that handler and vanilla
+        // cannot turn the letter into an ordinary book.
+        event.setCancelled(true);
         if (!event.isSigning()) {
-            // Let vanilla apply the final event metadata. ArmourShop's MONITOR handler
-            // can still preserve custom item components while accepting these pages.
             ItemStack restored = items.createEditedLetter(event.getNewBookMeta(), original);
             if (restored == null) {
                 warn("Failed to restore edited letter for " + player.getName());
+                sendMessage(player, LetterConfig.creationFailedMessage);
                 return;
             }
-            event.setNewBookMeta((BookMeta) restored.getItemMeta());
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (!player.isOnline() || !unchanged(original, player.getInventory().getItem(slot))) return;
+                player.getInventory().setItem(slot, restored);
+            });
             return;
         }
-        // Cancel so the vanilla written book is never produced - we hand out our own item instead.
-        event.setCancelled(true);
-
         ItemStack sealed = items.createSealedLetter(event.getNewBookMeta(), player);
         if (sealed == null) {
             warn("Failed to create sealed letter for " + player.getName());
