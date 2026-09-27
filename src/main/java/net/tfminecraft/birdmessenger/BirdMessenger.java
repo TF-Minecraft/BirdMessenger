@@ -15,6 +15,7 @@ import net.tfminecraft.birdmessenger.listener.PlayerSessionListener;
 import net.tfminecraft.birdmessenger.mail.MailService;
 import net.tfminecraft.birdmessenger.mail.MailStore;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
+import net.tfminecraft.birdmessenger.session.SendSession;
 import net.tfminecraft.birdmessenger.session.SendSessionManager;
 import net.tfminecraft.birdmessenger.letters.LetterFeature;
 
@@ -107,16 +108,16 @@ public final class BirdMessenger extends JavaPlugin {
 		if (player == null || !player.isOnline()) {
 			return;
 		}
+		SendSession session = sessions.get(player.getUniqueId());
+		if (session == null || session.getLetter() == null || session.isConfirmed()) {
+			return;
+		}
+		if (player.getOpenInventory().getTopInventory().getHolder() instanceof CharacterPickerGui) {
+			return;
+		}
 		if (!Bukkit.getPluginManager().isPluginEnabled("RPCharacters")) {
 			sessions.returnLetter(player, false);
 			player.sendMessage(config.msgRpcMissing());
-			return;
-		}
-		RPCharacters.refreshMailTargetTexturesAsync(() -> openPickerAfterTextures(player));
-	}
-
-	private void openPickerAfterTextures(Player player) {
-		if (player == null || !player.isOnline()) {
 			return;
 		}
 		List<SelectedTarget> targets = CharacterPickerGui.loadTargets();
@@ -131,7 +132,29 @@ public final class BirdMessenger extends JavaPlugin {
 			player.sendMessage(config.msgCannotSendToSelf());
 			return;
 		}
+		CharacterPickerGui picker = new CharacterPickerGui(this, targets);
 		player.sendMessage(config.msgPickerSelect());
-		player.openInventory(new CharacterPickerGui(this, targets).getInventory());
+		player.openInventory(picker.getInventory());
+		// Skin lookups can take minutes, so fill in missing heads after the picker is open.
+		RPCharacters.refreshMailTargetTexturesAsync(() -> refreshPickerHeads(player, picker));
+	}
+
+	private void refreshPickerHeads(Player player, CharacterPickerGui picker) {
+		if (!player.isOnline()
+				|| player.getOpenInventory().getTopInventory().getHolder() != picker) {
+			return;
+		}
+		SendSession session = sessions.get(player.getUniqueId());
+		if (session == null) {
+			return;
+		}
+		List<SelectedTarget> targets = CharacterPickerGui.loadTargets();
+		targets.removeIf(t -> player.getUniqueId().equals(t.getOwnerUuid()));
+		if (targets.isEmpty()) {
+			return;
+		}
+		picker.setTargets(targets);
+		session.setPickerPage(Math.min(session.getPickerPage(), picker.maxPage()));
+		CharacterPickerGui.applyPage(session, picker);
 	}
 }

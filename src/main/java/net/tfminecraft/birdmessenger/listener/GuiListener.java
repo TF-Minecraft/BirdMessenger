@@ -82,6 +82,8 @@ public final class GuiListener implements Listener {
 				return;
 			}
 			event.getInventory().setItem(LetterGui.LETTER_SLOT, null);
+			// A second letter must not overwrite one that is still waiting for a recipient.
+			plugin.sessions().returnLetter(player, false);
 			SendSession session = plugin.sessions().getOrCreate(player.getUniqueId());
 			session.setLetter(placed.clone());
 			session.setSelected(null);
@@ -114,7 +116,12 @@ public final class GuiListener implements Listener {
 				return;
 			}
 			if (LetterItems.isLetter(plugin.config(), cursor)) {
-				Bukkit.getScheduler().runTaskLater(plugin, () -> player.closeInventory(), 3L);
+				Bukkit.getScheduler().runTaskLater(plugin, () -> {
+					// The player may already have closed this GUI and moved on to the picker.
+					if (player.getOpenInventory().getTopInventory().getHolder() instanceof LetterGui) {
+						player.closeInventory();
+					}
+				}, 3L);
 			}
 			return;
 		}
