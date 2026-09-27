@@ -151,9 +151,6 @@ public final class BirdMessenger extends JavaPlugin {
 		}
 		List<SelectedTarget> targets = CharacterPickerGui.loadTargets();
 		targets.removeIf(t -> player.getUniqueId().equals(t.getOwnerUuid()));
-		if (targets.isEmpty()) {
-			return;
-		}
 		picker.setTargets(targets);
 		SelectedTarget selected = session.getSelected();
 		if (selected != null) {
