@@ -117,8 +117,8 @@ public final class GuiListener implements Listener {
 			}
 			if (LetterItems.isLetter(plugin.config(), cursor)) {
 				Bukkit.getScheduler().runTaskLater(plugin, () -> {
-					// The player may already have closed this GUI and moved on to the picker.
-					if (player.getOpenInventory().getTopInventory().getHolder() instanceof LetterGui) {
+					// The player may already have closed this GUI and moved on to another one.
+					if (player.getOpenInventory().getTopInventory() == top) {
 						player.closeInventory();
 					}
 				}, 3L);

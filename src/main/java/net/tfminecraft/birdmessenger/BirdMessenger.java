@@ -20,6 +20,7 @@ import net.tfminecraft.birdmessenger.session.SendSessionManager;
 import net.tfminecraft.birdmessenger.letters.LetterFeature;
 
 import java.util.List;
+import java.util.Objects;
 
 public final class BirdMessenger extends JavaPlugin {
 
@@ -154,6 +155,15 @@ public final class BirdMessenger extends JavaPlugin {
 			return;
 		}
 		picker.setTargets(targets);
+		SelectedTarget selected = session.getSelected();
+		if (selected != null) {
+			// Drop a selection whose recipient is no longer listed.
+			session.setSelected(targets.stream()
+					.filter(t -> selected.getCharacterId().equals(t.getCharacterId())
+							&& Objects.equals(selected.getOwnerUuid(), t.getOwnerUuid()))
+					.findFirst()
+					.orElse(null));
+		}
 		session.setPickerPage(Math.min(session.getPickerPage(), picker.maxPage()));
 		CharacterPickerGui.applyPage(session, picker);
 	}
