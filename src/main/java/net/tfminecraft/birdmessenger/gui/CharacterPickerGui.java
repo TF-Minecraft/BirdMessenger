@@ -31,7 +31,7 @@ public final class CharacterPickerGui implements InventoryHolder {
 	public static final int SLOT_NEXT = 53;
 
 	private final BirdMessenger plugin;
-	private final List<SelectedTarget> targets;
+	private List<SelectedTarget> targets;
 	private final Inventory inventory;
 
 	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
@@ -45,6 +45,11 @@ public final class CharacterPickerGui implements InventoryHolder {
 
 	public List<SelectedTarget> targets() {
 		return targets;
+	}
+
+	/** Swap in a reloaded target list, for example once missing skins arrive. */
+	public void setTargets(List<SelectedTarget> targets) {
+		this.targets = targets;
 	}
 
 	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
