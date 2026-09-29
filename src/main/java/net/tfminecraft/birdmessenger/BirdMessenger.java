@@ -40,7 +40,6 @@ public final class BirdMessenger extends JavaPlugin {
 		store.load();
 		mail = new MailService(this, store);
 		Bukkit.getPluginManager().registerEvents(new CoopListener(this), this);
-		// ItemsAdder is loaded after us so our interaction cancellation runs first.
 		if (Bukkit.getPluginManager().getPlugin("ItemsAdder") != null) {
 			Bukkit.getPluginManager().registerEvents(new CoopFurnitureListener(this), this);
 		}
