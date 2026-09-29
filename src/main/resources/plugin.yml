@@ -4,8 +4,9 @@ name: BirdMessenger
 version: ${project.version}
 author: MrEnzo99
 
+# No loadbefore: TLibs loads after ItemsAdder, so loading before ItemsAdder or
+# RPCharacters is a cycle that Paper refuses to start with.
 depend: [TLibs]
-loadbefore: [ItemsAdder]
 softdepend: [RPCharacters, TFMCWeb, ItemsAdder]
 
 commands:
