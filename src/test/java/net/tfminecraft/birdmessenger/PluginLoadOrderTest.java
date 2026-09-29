@@ -18,8 +18,7 @@ class PluginLoadOrderTest {
             assertNotNull(in);
             yml = YamlConfiguration.loadConfiguration(new InputStreamReader(in, StandardCharsets.UTF_8));
         }
-        // A loadbefore here closes RPCharacters -> TLibs -> ItemsAdder -> BirdMessenger -> RPCharacters,
-        // and RPCharacters must enable first for the character-activated mail listener to register.
+        // A loadbefore here closes RPCharacters -> TLibs -> ItemsAdder -> BirdMessenger -> RPCharacters.
         assertTrue(yml.getStringList("loadbefore").isEmpty());
         assertEquals(List.of("TLibs"), yml.getStringList("depend"));
         assertTrue(yml.getStringList("softdepend").containsAll(List.of("RPCharacters", "ItemsAdder")));
