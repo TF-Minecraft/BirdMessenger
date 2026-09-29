@@ -7,11 +7,11 @@ import org.bukkit.plugin.java.JavaPlugin;
 import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.command.BirdMessengerCommand;
 import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
-import net.tfminecraft.birdmessenger.listener.CharacterActivatedListener;
 import net.tfminecraft.birdmessenger.listener.CoopListener;
 import net.tfminecraft.birdmessenger.listener.CoopFurnitureListener;
 import net.tfminecraft.birdmessenger.listener.GuiListener;
 import net.tfminecraft.birdmessenger.listener.PlayerSessionListener;
+import net.tfminecraft.birdmessenger.listener.RpCharactersHook;
 import net.tfminecraft.birdmessenger.mail.MailService;
 import net.tfminecraft.birdmessenger.mail.MailStore;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
@@ -45,9 +45,9 @@ public final class BirdMessenger extends JavaPlugin {
 		}
 		Bukkit.getPluginManager().registerEvents(new GuiListener(this), this);
 		Bukkit.getPluginManager().registerEvents(new PlayerSessionListener(this), this);
-		if (Bukkit.getPluginManager().isPluginEnabled("RPCharacters")) {
-			Bukkit.getPluginManager().registerEvents(new CharacterActivatedListener(this), this);
-		}
+		RpCharactersHook rpCharacters = new RpCharactersHook(this);
+		Bukkit.getPluginManager().registerEvents(rpCharacters, this);
+		rpCharacters.registerIfEnabled();
 		mail.resume();
 		mail.flushPendingForOnlinePlayers();
 		BirdMessengerCommand command = new BirdMessengerCommand(this);
