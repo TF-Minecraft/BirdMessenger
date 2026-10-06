@@ -25,6 +25,12 @@ Technical documentation is maintained in [TF-Minecraft/Docs](https://github.com/
 
 ## Tests
 
+If a mail file or one of its entries cannot be decoded, BirdMessenger preserves
+the original file beside it as `<filename>.corrupt-<uuid>` before later saves can
+replace it. These recovery copies include unreadable entries and should be kept
+until the affected mail has been recovered. If the copy cannot be created,
+startup fails and the affected file cannot be overwritten by the store.
+
 Install the pinned shared plugin dependencies, download the private build
 inputs, then run the build with Java 21. In Bash:
 

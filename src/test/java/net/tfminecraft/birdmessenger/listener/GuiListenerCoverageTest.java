@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -38,11 +40,13 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.BundleMeta;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
@@ -167,6 +171,87 @@ class GuiListenerCoverageTest {
     assertSame(unrelated, playerItems[40]);
     assertEquals(2, unrelated.getAmount());
     assertNull(topItems[LetterGui.LETTER_SLOT]);
+    assertTrue(later.isEmpty());
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = InventoryAction.class,
+      names = {
+        "PLACE_FROM_BUNDLE",
+        "PICKUP_FROM_BUNDLE",
+        "PICKUP_ALL_INTO_BUNDLE",
+        "PICKUP_SOME_INTO_BUNDLE",
+        "PLACE_ALL_INTO_BUNDLE",
+        "PLACE_SOME_INTO_BUNDLE",
+        "UNKNOWN"
+      })
+  void unsupportedActionsCannotTransferBundledItemsIntoTheLetterSlot(InventoryAction action) {
+    ItemStack diamond = stack(false, 4);
+    when(diamond.getType()).thenReturn(Material.DIAMOND);
+    BundleMeta contents = mock(BundleMeta.class);
+    when(contents.getItems()).thenReturn(List.of(diamond));
+    ItemStack bundle = stack(false, 1);
+    when(bundle.getType()).thenReturn(Material.BUNDLE);
+    when(bundle.getItemMeta()).thenReturn(contents);
+    InventoryClickEvent event = click(bundle, action, ClickType.RIGHT);
+
+    listener.onClick(event);
+
+    assertTrue(event.isCancelled(), "Unvalidated bundle contents must remain with the player");
+    assertNull(topItems[LetterGui.LETTER_SLOT]);
+    assertSame(bundle, event.getCursor());
+    assertEquals(List.of(diamond), contents.getItems());
+    assertEquals(4, diamond.getAmount());
+    assertTrue(later.isEmpty());
+    verifyNoInteractions(mail);
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = InventoryAction.class,
+      names = {
+        "NOTHING",
+        "PICKUP_ALL",
+        "PICKUP_SOME",
+        "PICKUP_HALF",
+        "PICKUP_ONE",
+        "DROP_ALL_CURSOR",
+        "DROP_ONE_CURSOR",
+        "DROP_ALL_SLOT",
+        "DROP_ONE_SLOT",
+        "MOVE_TO_OTHER_INVENTORY",
+        "HOTBAR_MOVE_AND_READD",
+        "CLONE_STACK"
+      })
+  void supportedRemovalAndNoopActionsRemainOwnedByBukkit(InventoryAction action) {
+    ItemStack letter = stack(true, 1);
+    topItems[LetterGui.LETTER_SLOT] = letter;
+    InventoryClickEvent event = click(null, action, ClickType.LEFT);
+
+    listener.onClick(event);
+
+    assertFalse(event.isCancelled());
+    assertSame(letter, topItems[LetterGui.LETTER_SLOT]);
+    assertEquals(1, letter.getAmount());
+    assertTrue(later.isEmpty());
+    assertTrue(nextTick.isEmpty());
+    verify(player, never()).closeInventory();
+    verifyNoInteractions(mail);
+  }
+
+  @Test
+  void bundleActionsInThePlayerInventoryDoNotAffectTheLetterSlot() {
+    ItemStack letter = stack(true, 1);
+    topItems[LetterGui.LETTER_SLOT] = letter;
+    InventoryClickEvent event =
+        click(stack(false, 1), InventoryAction.PLACE_FROM_BUNDLE, ClickType.RIGHT);
+    when(event.getClickedInventory()).thenReturn(inventory);
+
+    listener.onClick(event);
+
+    assertFalse(event.isCancelled());
+    assertSame(letter, topItems[LetterGui.LETTER_SLOT]);
     assertTrue(later.isEmpty());
   }
 
@@ -507,6 +592,56 @@ class GuiListenerCoverageTest {
     assertSame(letter, session.getLetter());
     assertTrue(nextTick.isEmpty());
     verifyNoInteractions(mail);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void closingWithAnUnexpectedItemReturnsItOnceAndPreservesThePendingLetter(boolean fullInventory) {
+    SendSession session = sessions.getOrCreate(playerId);
+    ItemStack letter = stack(true, 1);
+    session.setLetter(letter);
+    SelectedTarget selected = target();
+    session.setSelected(selected);
+    session.setConfirmed(true);
+    session.setPickerPage(3);
+    ItemStack unexpected = stack(false, 4);
+    topItems[LetterGui.LETTER_SLOT] = unexpected;
+    World world = mock(World.class);
+    when(player.getWorld()).thenReturn(world);
+    when(inventory.addItem(unexpected))
+        .thenReturn(new HashMap<>(fullInventory ? Map.of(0, unexpected) : Map.of()));
+
+    listener.onClose(closeEvent());
+    listener.onClose(closeEvent());
+
+    assertNull(topItems[LetterGui.LETTER_SLOT]);
+    verify(inventory).addItem(unexpected);
+    if (fullInventory) {
+      verify(world).dropItemNaturally(player.getLocation(), unexpected);
+    } else {
+      verifyNoInteractions(world);
+    }
+    assertEquals(4, unexpected.getAmount());
+    assertSame(session, sessions.get(playerId));
+    assertSame(letter, session.getLetter());
+    assertSame(selected, session.getSelected());
+    assertTrue(session.isConfirmed());
+    assertEquals(3, session.getPickerPage());
+    assertTrue(nextTick.isEmpty());
+    verifyNoInteractions(mail);
+  }
+
+  @Test
+  void closingWithAnAirStackDoesNotCreateARefundOrSession() {
+    ItemStack empty = stack(false, 0);
+    when(empty.getType().isAir()).thenReturn(true);
+    topItems[LetterGui.LETTER_SLOT] = empty;
+
+    listener.onClose(closeEvent());
+
+    verify(inventory, never()).addItem(any(ItemStack.class));
+    assertNull(sessions.get(playerId));
+    assertTrue(nextTick.isEmpty());
   }
 
   @Test

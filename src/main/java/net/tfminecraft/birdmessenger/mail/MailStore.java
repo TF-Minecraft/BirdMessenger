@@ -2,11 +2,14 @@ package net.tfminecraft.birdmessenger.mail;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -26,6 +29,7 @@ public final class MailStore {
 	private final File pendingFile;
 	private final Map<UUID, StoredMail> inFlight = new ConcurrentHashMap<>();
 	private final Map<String, List<PendingLetter>> pending = new ConcurrentHashMap<>();
+	private final Set<File> recoveryRequired = new HashSet<>();
 
 	public MailStore(BirdMessenger plugin) {
 		this.plugin = plugin;
@@ -103,6 +107,7 @@ public final class MailStore {
 	}
 
 	private void saveInFlight() {
+		requireRecovered(inFlightFile);
 		FileConfiguration config = new YamlConfiguration();
 		for (StoredMail mail : inFlight.values()) {
 			String path = "mail." + mail.getId();
@@ -122,6 +127,7 @@ public final class MailStore {
 
 	private void loadInFlight() {
 		if (!inFlightFile.exists()) {
+			recoveryRequired.remove(inFlightFile);
 			inFlight.clear();
 			return;
 		}
@@ -129,11 +135,14 @@ public final class MailStore {
 		if (config == null) {
 			return;
 		}
+		recoveryRequired.remove(inFlightFile);
 		inFlight.clear();
 		ConfigurationSection section = config.getConfigurationSection("mail");
 		if (section == null) {
+			if (config.contains("mail")) preserveDamagedFile(inFlightFile);
 			return;
 		}
+		boolean damaged = false;
 		for (String key : section.getKeys(false)) {
 			try {
 				UUID id = UUID.fromString(key);
@@ -141,6 +150,7 @@ public final class MailStore {
 				String owner = config.getString("mail." + key + ".owner");
 				String characterId = config.getString("mail." + key + ".character-id");
 				if (sender == null || owner == null || characterId == null || characterId.isBlank()) {
+					damaged = true;
 					plugin.getLogger().warning("Skipping in-flight mail " + key + ": missing character id");
 					continue;
 				}
@@ -151,6 +161,7 @@ public final class MailStore {
 					rawItem = config.get("mail." + key + ".book");
 				}
 				if (!(rawItem instanceof Map) && !(rawItem instanceof ConfigurationSection)) {
+					damaged = true;
 					continue;
 				}
 				ItemStack item = deserializeItem(rawItem);
@@ -163,12 +174,15 @@ public final class MailStore {
 						item,
 						deliveryTime));
 			} catch (Exception ex) {
+				damaged = true;
 				plugin.getLogger().warning("Could not load in-flight mail " + key);
 			}
 		}
+		if (damaged) preserveDamagedFile(inFlightFile);
 	}
 
 	private void savePending() {
+		requireRecovered(pendingFile);
 		FileConfiguration config = new YamlConfiguration();
 		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
 			String path = "characters." + entry.getKey();
@@ -198,6 +212,7 @@ public final class MailStore {
 	@SuppressWarnings("unchecked")
 	private void loadPending() {
 		if (!pendingFile.exists()) {
+			recoveryRequired.remove(pendingFile);
 			pending.clear();
 			return;
 		}
@@ -205,15 +220,19 @@ public final class MailStore {
 		if (config == null) {
 			return;
 		}
+		recoveryRequired.remove(pendingFile);
 		pending.clear();
 		ConfigurationSection section = config.getConfigurationSection("characters");
 		if (section == null) {
+			if (config.contains("characters")) preserveDamagedFile(pendingFile);
 			return;
 		}
+		boolean damaged = false;
 		for (String characterId : section.getKeys(false)) {
 			try {
 				String owner = config.getString("characters." + characterId + ".owner");
 				if (owner == null) {
+					damaged = true;
 					continue;
 				}
 				UUID ownerUuid = UUID.fromString(owner);
@@ -224,6 +243,7 @@ public final class MailStore {
 						try {
 							letters.add(parsePendingLetter(ownerUuid, (Map<String, Object>) raw));
 						} catch (Exception ex) {
+							damaged = true;
 							plugin.getLogger().warning("Could not load pending letter for " + characterId);
 						}
 					}
@@ -234,6 +254,7 @@ public final class MailStore {
 							try {
 								letters.add(new PendingLetter(ownerUuid, null, "", deserializeItem(raw)));
 							} catch (Exception ex) {
+								damaged = true;
 								plugin.getLogger().warning("Could not load pending letter for " + characterId);
 							}
 						}
@@ -243,9 +264,11 @@ public final class MailStore {
 					pending.put(characterId, letters);
 				}
 			} catch (Exception ex) {
+				damaged = true;
 				plugin.getLogger().warning("Could not load pending mail for " + characterId);
 			}
 		}
+		if (damaged) preserveDamagedFile(pendingFile);
 	}
 
 	private FileConfiguration loadFile(File file) {
@@ -256,10 +279,31 @@ public final class MailStore {
 			config.load(file);
 		} catch (IOException | InvalidConfigurationException ex) {
 			plugin.getLogger().log(Level.SEVERE, "Could not load mail file " + file.getName(), ex);
+			preserveDamagedFile(file);
 			return null;
 		}
 		config.options().pathSeparator('.');
 		return config;
+	}
+
+	private void preserveDamagedFile(File file) {
+		// Keep the original bytes, including entries that could not be decoded, before any save.
+		recoveryRequired.add(file);
+		File backup = new File(file.getParentFile(), file.getName() + ".corrupt-" + UUID.randomUUID());
+		try {
+			if (!file.isFile()) throw new IOException("Mail path is not a regular file: " + file);
+			Files.copy(file.toPath(), backup.toPath());
+		} catch (IOException ex) {
+			throw new IllegalStateException("Cannot preserve damaged mail file; refusing to overwrite " + file, ex);
+		}
+		recoveryRequired.remove(file);
+		plugin.getLogger().warning("Preserved damaged mail file for recovery: " + backup.getName());
+	}
+
+	private void requireRecovered(File file) {
+		if (recoveryRequired.contains(file)) {
+			throw new IllegalStateException("Mail file still requires recovery; refusing to overwrite " + file);
+		}
 	}
 
 	private static PendingLetter parsePendingLetter(UUID ownerUuid, Map<String, Object> map) {

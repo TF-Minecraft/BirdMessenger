@@ -19,6 +19,7 @@ import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
 import net.tfminecraft.birdmessenger.gui.LetterGui;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.session.SendSession;
+import net.tfminecraft.birdmessenger.util.ItemGive;
 import net.tfminecraft.birdmessenger.util.LetterItems;
 
 public final class GuiListener implements Listener {
@@ -85,6 +86,10 @@ public final class GuiListener implements Listener {
 		if (event.getInventory().getHolder() instanceof LetterGui) {
 			ItemStack placed = event.getInventory().getItem(LetterGui.LETTER_SLOT);
 			if (!LetterItems.isLetter(plugin.config(), placed)) {
+				if (placed != null && !placed.getType().isAir()) {
+					event.getInventory().setItem(LetterGui.LETTER_SLOT, null);
+					ItemGive.giveOrDrop(player, placed);
+				}
 				return;
 			}
 			event.getInventory().setItem(LetterGui.LETTER_SLOT, null);
@@ -116,6 +121,10 @@ public final class GuiListener implements Listener {
 		}
 		if (event.getClickedInventory() == top) {
 			if (event.getSlot() != LetterGui.LETTER_SLOT) {
+				event.setCancelled(true);
+				return;
+			}
+			if (!supportsLetterSlot(event.getAction())) {
 				event.setCancelled(true);
 				return;
 			}
@@ -166,6 +175,17 @@ public final class GuiListener implements Listener {
 			player.closeInventory();
 			player.playSound(player.getLocation(), Sound.ENTITY_PARROT_FLY, 1f, 1f);
 		}
+	}
+
+	private static boolean supportsLetterSlot(InventoryAction action) {
+		// Bundle contents and future actions need their own incoming-item validation.
+		return switch (action) {
+			case NOTHING, PICKUP_ALL, PICKUP_SOME, PICKUP_HALF, PICKUP_ONE,
+					PLACE_ALL, PLACE_SOME, PLACE_ONE, SWAP_WITH_CURSOR,
+					DROP_ALL_CURSOR, DROP_ONE_CURSOR, DROP_ALL_SLOT, DROP_ONE_SLOT,
+					MOVE_TO_OTHER_INVENTORY, HOTBAR_MOVE_AND_READD, HOTBAR_SWAP, CLONE_STACK -> true;
+			default -> false;
+		};
 	}
 
 	private static ItemStack incomingItem(InventoryClickEvent event, Player player) {

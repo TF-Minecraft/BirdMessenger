@@ -152,6 +152,100 @@ class MailStoreCoverageTest {
   }
 
   @Test
+  void coldStartKeepsAnExactRecoveryCopyBeforeReplacingMalformedYaml() throws Exception {
+    new MailStore(plugin);
+    String damaged = "mail: [not closed\n# original recoverable text\n";
+    for (String file : List.of("in_flight_mail.yml", "pending_mail.yml")) {
+      Files.writeString(root.resolve("mail-data").resolve(file), damaged);
+    }
+    MailStore store = new MailStore(plugin);
+    store.load();
+    store.takePending(CHARACTER);
+    store.saveAll();
+    for (String file : List.of("in_flight_mail.yml", "pending_mail.yml")) {
+      assertEquals(damaged, Files.readString(recoveryCopy(file)));
+      assertNotEquals(damaged, Files.readString(root.resolve("mail-data").resolve(file)));
+    }
+  }
+
+  @Test
+  void skippedEntriesRemainRecoverableAfterValidMailIsConsumed() throws Exception {
+    new MailStore(plugin);
+    YamlConfiguration pending = new YamlConfiguration();
+    pending.set("characters." + CHARACTER + ".owner", OWNER.toString());
+    pending.set(
+        "characters." + CHARACTER + ".letters",
+        List.of(
+            Map.of("item", serializedItem("Good")), Map.of("item", "recoverable invalid payload")));
+    pending.save(root.resolve("mail-data/pending_mail.yml").toFile());
+    YamlConfiguration flight = new YamlConfiguration();
+    flight.set("mail." + ID, flightRecord(serializedItem("Good flight")));
+    flight.set("mail.not-a-uuid", Map.of("item", "recoverable flight payload"));
+    flight.save(root.resolve("mail-data/in_flight_mail.yml").toFile());
+    String originalPending = Files.readString(root.resolve("mail-data/pending_mail.yml"));
+    String originalFlight = Files.readString(root.resolve("mail-data/in_flight_mail.yml"));
+    MailStore store = new MailStore(plugin);
+    store.load();
+    assertEquals(1, store.takePending(CHARACTER).size());
+    assertNotNull(store.removeInFlight(ID));
+    store.saveAll();
+    assertEquals(originalPending, Files.readString(recoveryCopy("pending_mail.yml")));
+    assertEquals(originalFlight, Files.readString(recoveryCopy("in_flight_mail.yml")));
+    MailStore restored = new MailStore(plugin);
+    restored.load();
+    assertFalse(restored.hasPending(CHARACTER));
+    assertTrue(restored.inFlight().isEmpty());
+    assertEquals(originalPending, Files.readString(recoveryCopy("pending_mail.yml")));
+  }
+
+  private Path recoveryCopy(String file) throws IOException {
+    try (var files = Files.list(root.resolve("mail-data"))) {
+      List<Path> copies =
+          files
+              .filter(path -> path.getFileName().toString().startsWith(file + ".corrupt-"))
+              .toList();
+      assertEquals(
+          1, copies.size(), "Keep exactly one untouched recovery copy per damaged load of " + file);
+      return copies.getFirst();
+    }
+  }
+
+  @Test
+  void invalidRootSectionsAreBackedUpBeforeAnEmptyStateCanReplaceThem() throws Exception {
+    new MailStore(plugin);
+    String flight = "mail: recoverable-unexpected-value\n";
+    String pending = "characters: [recoverable, unexpected, list]\n";
+    Files.writeString(root.resolve("mail-data/in_flight_mail.yml"), flight);
+    Files.writeString(root.resolve("mail-data/pending_mail.yml"), pending);
+    MailStore store = new MailStore(plugin);
+    store.load();
+    store.saveAll();
+    assertEquals(flight, Files.readString(recoveryCopy("in_flight_mail.yml")));
+    assertEquals(pending, Files.readString(recoveryCopy("pending_mail.yml")));
+  }
+
+  @Test
+  void backupFailureBlocksSavesUntilTheMailFileIsRecovered() throws Exception {
+    MailStore store = new MailStore(plugin);
+    Path pending = root.resolve("mail-data/pending_mail.yml");
+    String damaged = "characters: [unclosed\n";
+    Files.writeString(pending, damaged);
+    try (MockedStatic<Files> files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+      files
+          .when(() -> Files.copy(eq(pending), any(Path.class)))
+          .thenThrow(new IOException("Recovery destination unavailable"));
+      IllegalStateException failure = assertThrows(IllegalStateException.class, store::load);
+      assertEquals("Recovery destination unavailable", failure.getCause().getMessage());
+      assertThrows(IllegalStateException.class, store::saveAll);
+      assertEquals(damaged, Files.readString(pending));
+    }
+    store.load();
+    store.saveAll();
+    assertEquals(damaged, Files.readString(recoveryCopy("pending_mail.yml")));
+    assertFalse(YamlConfiguration.loadConfiguration(pending.toFile()).contains("characters"));
+  }
+
+  @Test
   void newStoreHandlesMissingFilesAndNullRequestsWithoutCreatingMail() throws Exception {
     MailStore store = new MailStore(plugin);
     assertTrue(Files.isDirectory(root.resolve("mail-data")));
@@ -371,7 +465,8 @@ class MailStoreCoverageTest {
       Files.delete(path);
       Files.createDirectory(path);
     }
-    assertDoesNotThrow(store::load);
+    assertThrows(IllegalStateException.class, store::load);
+    assertThrows(IllegalStateException.class, store::saveAll);
     assertSame(mail, store.inFlight().get(ID));
     assertTrue(store.hasPending(CHARACTER));
   }
