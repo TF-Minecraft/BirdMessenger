@@ -6,6 +6,8 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -62,6 +64,10 @@ public final class GuiListener implements Listener {
 					if (cursor != null && cursor.getType() != Material.AIR) {
 						player.sendMessage(plugin.config().msgOnlyLetters());
 					}
+				} else if (event.getNewItems().get(rawSlot).getAmount() > 1) {
+					event.setCancelled(true);
+					player.sendMessage(plugin.config().msgOneLetter());
+					return;
 				}
 			}
 			return;
@@ -103,19 +109,29 @@ public final class GuiListener implements Listener {
 
 	private void handleLetterClick(InventoryClickEvent event, Player player) {
 		Inventory top = event.getView().getTopInventory();
+		// Collect-to-cursor can pull protected panes from the top even when clicked below it.
+		if (event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
+			event.setCancelled(true);
+			return;
+		}
 		if (event.getClickedInventory() == top) {
 			if (event.getSlot() != LetterGui.LETTER_SLOT) {
 				event.setCancelled(true);
 				return;
 			}
-			ItemStack cursor = event.getCursor();
-			if (cursor != null && cursor.getType() != Material.AIR
-					&& !LetterItems.isLetter(plugin.config(), cursor)) {
+			ItemStack incoming = incomingItem(event, player);
+			boolean letter = LetterItems.isLetter(plugin.config(), incoming);
+			if (incoming != null && incoming.getType() != Material.AIR && !letter) {
 				event.setCancelled(true);
 				player.sendMessage(plugin.config().msgOnlyLetters());
 				return;
 			}
-			if (LetterItems.isLetter(plugin.config(), cursor)) {
+			if (letter) {
+				if (placesMultiple(event, top, incoming)) {
+					event.setCancelled(true);
+					player.sendMessage(plugin.config().msgOneLetter());
+					return;
+				}
 				Bukkit.getScheduler().runTaskLater(plugin, () -> {
 					// The player may already have closed this GUI and moved on to another one.
 					if (player.getOpenInventory().getTopInventory() == top) {
@@ -150,6 +166,28 @@ public final class GuiListener implements Listener {
 			player.closeInventory();
 			player.playSound(player.getLocation(), Sound.ENTITY_PARROT_FLY, 1f, 1f);
 		}
+	}
+
+	private static ItemStack incomingItem(InventoryClickEvent event, Player player) {
+		return switch (event.getAction()) {
+			case HOTBAR_SWAP -> event.getClick() == ClickType.SWAP_OFFHAND
+					? player.getInventory().getItemInOffHand()
+					: event.getHotbarButton() < 0 ? null : player.getInventory().getItem(event.getHotbarButton());
+			case PLACE_ALL, PLACE_SOME, PLACE_ONE, SWAP_WITH_CURSOR -> event.getCursor();
+			default -> null;
+		};
+	}
+
+	private static boolean placesMultiple(InventoryClickEvent event, Inventory top, ItemStack incoming) {
+		ItemStack existing = top.getItem(LetterGui.LETTER_SLOT);
+		int current = existing == null ? 0 : existing.getAmount();
+		return switch (event.getAction()) {
+			case PLACE_ONE -> current >= 1;
+			case PLACE_ALL -> (long) current + incoming.getAmount() > 1;
+			case PLACE_SOME -> Math.min((long) current + incoming.getAmount(),
+					Math.min(top.getMaxStackSize(), incoming.getMaxStackSize())) > 1;
+			default -> incoming.getAmount() > 1;
+		};
 	}
 
 	private void handlePickerClick(InventoryClickEvent event, Player player, CharacterPickerGui picker) {

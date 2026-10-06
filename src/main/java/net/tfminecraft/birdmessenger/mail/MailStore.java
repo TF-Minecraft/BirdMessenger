@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -11,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
@@ -80,12 +82,13 @@ public final class MailStore {
 		if (mail == null || mail.getCharacterId() == null) {
 			return;
 		}
-		pending.computeIfAbsent(mail.getCharacterId(), k -> new ArrayList<>())
-				.add(new PendingLetter(
+		PendingLetter letter = new PendingLetter(
 						mail.getOwnerUuid(),
 						mail.getSenderUuid(),
 						mail.getAddresseeDisplayTab(),
-						mail.getItem().clone()));
+						mail.getItem().clone());
+		// Publish only complete entries: this private map always contains nonempty lists.
+		pending.computeIfAbsent(mail.getCharacterId(), k -> new ArrayList<>()).add(letter);
 		savePending();
 	}
 
@@ -117,13 +120,16 @@ public final class MailStore {
 		}
 	}
 
-	@SuppressWarnings("unchecked")
 	private void loadInFlight() {
-		inFlight.clear();
 		if (!inFlightFile.exists()) {
+			inFlight.clear();
 			return;
 		}
-		FileConfiguration config = YamlConfiguration.loadConfiguration(inFlightFile);
+		FileConfiguration config = loadFile(inFlightFile);
+		if (config == null) {
+			return;
+		}
+		inFlight.clear();
 		ConfigurationSection section = config.getConfigurationSection("mail");
 		if (section == null) {
 			return;
@@ -144,10 +150,10 @@ public final class MailStore {
 				if (rawItem == null) {
 					rawItem = config.get("mail." + key + ".book");
 				}
-				if (!(rawItem instanceof Map)) {
+				if (!(rawItem instanceof Map) && !(rawItem instanceof ConfigurationSection)) {
 					continue;
 				}
-				ItemStack item = ItemStack.deserialize((Map<String, Object>) rawItem);
+				ItemStack item = deserializeItem(rawItem);
 				inFlight.put(id, new StoredMail(
 						id,
 						UUID.fromString(sender),
@@ -167,9 +173,6 @@ public final class MailStore {
 		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
 			String path = "characters." + entry.getKey();
 			List<PendingLetter> letters = entry.getValue();
-			if (letters == null || letters.isEmpty()) {
-				continue;
-			}
 			config.set(path + ".owner", letters.get(0).ownerUuid.toString());
 			List<Map<String, Object>> letterMaps = new ArrayList<>();
 			for (PendingLetter letter : letters) {
@@ -194,11 +197,15 @@ public final class MailStore {
 
 	@SuppressWarnings("unchecked")
 	private void loadPending() {
-		pending.clear();
 		if (!pendingFile.exists()) {
+			pending.clear();
 			return;
 		}
-		FileConfiguration config = YamlConfiguration.loadConfiguration(pendingFile);
+		FileConfiguration config = loadFile(pendingFile);
+		if (config == null) {
+			return;
+		}
+		pending.clear();
 		ConfigurationSection section = config.getConfigurationSection("characters");
 		if (section == null) {
 			return;
@@ -211,18 +218,24 @@ public final class MailStore {
 				}
 				UUID ownerUuid = UUID.fromString(owner);
 				List<PendingLetter> letters = new ArrayList<>();
-				List<Map<String, Object>> letterMaps =
-						(List<Map<String, Object>>) config.get("characters." + characterId + ".letters");
+				List<?> letterMaps = (List<?>) config.get("characters." + characterId + ".letters");
 				if (letterMaps != null) {
-					for (Map<String, Object> map : letterMaps) {
-						letters.add(parsePendingLetter(ownerUuid, map));
+					for (Object raw : letterMaps) {
+						try {
+							letters.add(parsePendingLetter(ownerUuid, (Map<String, Object>) raw));
+						} catch (Exception ex) {
+							plugin.getLogger().warning("Could not load pending letter for " + characterId);
+						}
 					}
 				} else {
-					List<Map<String, Object>> serialized =
-							(List<Map<String, Object>>) config.get("characters." + characterId + ".items");
+					List<?> serialized = (List<?>) config.get("characters." + characterId + ".items");
 					if (serialized != null) {
-						for (Map<String, Object> map : serialized) {
-							letters.add(new PendingLetter(ownerUuid, null, "", ItemStack.deserialize(map)));
+						for (Object raw : serialized) {
+							try {
+								letters.add(new PendingLetter(ownerUuid, null, "", deserializeItem(raw)));
+							} catch (Exception ex) {
+								plugin.getLogger().warning("Could not load pending letter for " + characterId);
+							}
 						}
 					}
 				}
@@ -235,7 +248,20 @@ public final class MailStore {
 		}
 	}
 
-	@SuppressWarnings("unchecked")
+	private FileConfiguration loadFile(File file) {
+		YamlConfiguration config = new YamlConfiguration();
+		// Item component keys may contain literal dots; preserve them while reading YAML.
+		config.options().pathSeparator('\0');
+		try {
+			config.load(file);
+		} catch (IOException | InvalidConfigurationException ex) {
+			plugin.getLogger().log(Level.SEVERE, "Could not load mail file " + file.getName(), ex);
+			return null;
+		}
+		config.options().pathSeparator('.');
+		return config;
+	}
+
 	private static PendingLetter parsePendingLetter(UUID ownerUuid, Map<String, Object> map) {
 		UUID senderUuid = null;
 		Object senderRaw = map.get("sender");
@@ -249,11 +275,39 @@ public final class MailStore {
 		String display = map.containsKey("addressee-display")
 				? String.valueOf(map.get("addressee-display"))
 				: "";
-		Object itemRaw = map.get("item");
-		ItemStack item = itemRaw instanceof Map
-				? ItemStack.deserialize((Map<String, Object>) itemRaw)
-				: new ItemStack(org.bukkit.Material.AIR);
+		ItemStack item = deserializeItem(map.get("item"));
 		return new PendingLetter(ownerUuid, senderUuid, display, item);
+	}
+
+	@SuppressWarnings("unchecked")
+	private static ItemStack deserializeItem(Object raw) {
+		Object values = serializedValue(raw);
+		if (!(values instanceof Map)) {
+			throw new IllegalArgumentException("Missing serialized letter item");
+		}
+		return ItemStack.deserialize((Map<String, Object>) values);
+	}
+
+	private static Object serializedValue(Object raw) {
+		// YAML mappings outside lists become sections, including nested item components.
+		if (raw instanceof ConfigurationSection section) {
+			raw = section.getValues(false);
+		}
+		if (raw instanceof Map<?, ?> map) {
+			Map<Object, Object> values = new LinkedHashMap<>();
+			for (Map.Entry<?, ?> entry : map.entrySet()) {
+				values.put(entry.getKey(), serializedValue(entry.getValue()));
+			}
+			return values;
+		}
+		if (raw instanceof List<?> list) {
+			List<Object> values = new ArrayList<>();
+			for (Object entry : list) {
+				values.add(serializedValue(entry));
+			}
+			return values;
+		}
+		return raw;
 	}
 
 	public static final class PendingLetter {

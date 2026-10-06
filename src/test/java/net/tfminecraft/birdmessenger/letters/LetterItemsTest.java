@@ -55,6 +55,7 @@ class LetterItemsTest {
         PersistentDataContainer pdc = mock(PersistentDataContainer.class);
         when(api.getCreator().getItemFromPath(LetterConfig.writtenLetterPath)).thenReturn(template);
         when(template.clone()).thenReturn(sealed);
+        when(template.getType()).thenReturn(Material.WRITTEN_BOOK);
         when(sealed.getItemMeta()).thenReturn(target);
         when(target.getPersistentDataContainer()).thenReturn(pdc);
         BookMeta source = source();
@@ -79,6 +80,7 @@ class LetterItemsTest {
         BookMeta target = mock(BookMeta.class);
         when(api.getCreator().getItemFromPath(LetterConfig.writtenLetterOpenPath)).thenReturn(template);
         when(template.clone()).thenReturn(opened);
+        when(template.getType()).thenReturn(Material.WRITTEN_BOOK);
         when(opened.getItemMeta()).thenReturn(target);
         BookMeta source = source();
         when(source.hasAuthor()).thenReturn(true);
@@ -139,6 +141,92 @@ class LetterItemsTest {
             when(letter.getType()).thenReturn(Material.WRITTEN_BOOK);
             assertFalse(configured.isEditableLetter(letter));
             assertFalse(configured.isEditableLetter(null));
+        }
+    }
+
+    @Test void missingBookMetadataCannotReplaceTheOriginalLetter() {
+        ItemAPI api = mock(ItemAPI.class, RETURNS_DEEP_STUBS);
+        ItemStack template = mock(ItemStack.class);
+        ItemStack copy = mock(ItemStack.class);
+        when(template.getType()).thenReturn(Material.WRITTEN_BOOK);
+        when(template.clone()).thenReturn(copy);
+        when(api.getCreator().getItemFromPath(anyString())).thenReturn(template);
+        try (var tlibs = mockStatic(TLibs.class)) {
+            tlibs.when(TLibs::getItemAPI).thenReturn(api);
+            assertNull(items.createSealedLetter(source(), mock(Player.class)));
+            assertNull(items.createOpenedLetter(source()));
+            verify(copy, never()).setItemMeta(any());
+        }
+    }
+
+    @Test void nonBookTemplatesCannotReplaceTheOriginalLetter() {
+        ItemAPI api = mock(ItemAPI.class, RETURNS_DEEP_STUBS);
+        ItemStack template = mock(ItemStack.class);
+        when(template.getType()).thenReturn(Material.AIR);
+        when(template.clone()).thenReturn(template);
+        when(api.getCreator().getItemFromPath(anyString())).thenReturn(template);
+        try (var tlibs = mockStatic(TLibs.class)) {
+            tlibs.when(TLibs::getItemAPI).thenReturn(api);
+            assertNull(items.createSealedLetter(source(), mock(Player.class)));
+            assertNull(items.createOpenedLetter(source()));
+        }
+    }
+
+    @Test void providerFailuresAndMissingTemplatesDoNotProduceReplacementItems() {
+        ItemAPI api = mock(ItemAPI.class, RETURNS_DEEP_STUBS);
+        ItemStack writable = mock(ItemStack.class);
+        when(writable.getType()).thenReturn(Material.WRITABLE_BOOK);
+        when(api.getChecker().checkItemWithPath(writable, LetterConfig.letterPath))
+                .thenThrow(new IllegalStateException("Provider unavailable"));
+        when(api.getCreator().getItemFromPath(anyString())).thenReturn(null);
+        try (var tlibs = mockStatic(TLibs.class)) {
+            tlibs.when(TLibs::getItemAPI).thenReturn(api);
+            assertFalse(items.isLetter(writable));
+            assertNull(items.createSealedLetter(source(), mock(Player.class)));
+            assertNull(items.createOpenedLetter(source()));
+            when(api.getCreator().getItemFromPath(anyString())).thenThrow(new IllegalStateException("Provider unavailable"));
+            assertNull(items.createSealedLetter(source(), mock(Player.class)));
+            assertNull(items.createOpenedLetter(source()));
+            assertNull(new LetterItems(null).createOpenedLetter(source()));
+        }
+        ItemStack previous = mock(ItemStack.class);
+        when(previous.clone()).thenThrow(new IllegalStateException("Item snapshot unavailable"));
+        assertNull(items.createEditedLetter(source(), previous));
+        verify(previous, never()).setItemMeta(any());
+    }
+
+    @Test void privateUnsignedSealsHideTheAuthorAndPreserveTemplateNameWithoutATitle() {
+        ItemAPI api = mock(ItemAPI.class, RETURNS_DEEP_STUBS);
+        ItemStack template = mock(ItemStack.class);
+        ItemStack copy = mock(ItemStack.class);
+        BookMeta target = mock(BookMeta.class);
+        PersistentDataContainer data = mock(PersistentDataContainer.class);
+        when(target.getPersistentDataContainer()).thenReturn(data);
+        when(template.getType()).thenReturn(Material.WRITTEN_BOOK);
+        when(template.clone()).thenReturn(copy);
+        when(copy.getItemMeta()).thenReturn(target);
+        when(api.getCreator().getItemFromPath(LetterConfig.writtenLetterPath)).thenReturn(template);
+        BookMeta source = mock(BookMeta.class);
+        when(source.getPages()).thenReturn(List.of("Private message"));
+        boolean previousHide = LetterConfig.hideAuthor;
+        boolean previousTitle = LetterConfig.useTitleAsName;
+        try (var tlibs = mockStatic(TLibs.class)) {
+            LetterConfig.hideAuthor = true;
+            LetterConfig.useTitleAsName = false;
+            tlibs.when(TLibs::getItemAPI).thenReturn(api);
+            assertSame(copy, items.createSealedLetter(source, mock(Player.class)));
+            verify(target).setAuthor(null);
+            verify(target).setPages(List.of("Private message"));
+            verify(target, never()).setTitle(anyString());
+            verify(target, never()).setDisplayName(anyString());
+            when(source.hasTitle()).thenReturn(true);
+            when(source.getTitle()).thenReturn("Private title");
+            assertSame(copy, items.createSealedLetter(source, mock(Player.class)));
+            verify(target).setTitle("Private title");
+            verify(target, never()).setDisplayName(anyString());
+        } finally {
+            LetterConfig.hideAuthor = previousHide;
+            LetterConfig.useTitleAsName = previousTitle;
         }
     }
 

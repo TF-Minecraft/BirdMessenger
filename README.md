@@ -42,6 +42,10 @@ subshell keeps it out of your session and Maven, and Maven only runs if both
 preparation steps succeed. CI supplies it from `DEPS_TOKEN`.
 
 Tests use JUnit and Mockito and run without a live Minecraft server.
+`mvn clean verify` requires 100% production line coverage with no class or package
+exclusions. JaCoCo writes HTML and XML reports to `target/site/jacoco/`, and CI
+uploads them alongside the Surefire test reports. The gate measures lines;
+it does not require 100% branch coverage or replace testing on a live server.
 
 ## License
 

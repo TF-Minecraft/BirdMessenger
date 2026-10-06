@@ -20,8 +20,8 @@ public final class FlightTime {
 			return null;
 		}
 		double distance = from.distance(to);
-		int seconds = (int) Math.round(distance * config.secondsPerBlock());
-		return Math.max(config.minSeconds(), Math.min(config.maxSeconds(), seconds));
+		long seconds = Math.round(distance * config.secondsPerBlock());
+		return (int) Math.max(config.minSeconds(), Math.min(config.maxSeconds(), seconds));
 	}
 
 	public static Long deliveryTimeMillis(BirdConfig config, Location from, Location to) {
