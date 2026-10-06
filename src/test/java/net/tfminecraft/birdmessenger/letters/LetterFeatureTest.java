@@ -61,6 +61,24 @@ class LetterFeatureTest {
         verify(manager).registerEvents(any(LetterListener.class), same(bird));
     }
 
+    @Test void closingUnregistersExactlyOneListenerAndAllowsReinitialization() throws Exception {
+        Files.writeString(root.resolve("letters-config.yml"), "items:\n  letter: m.books.custom\n");
+        LetterFeature feature = new LetterFeature(bird);
+        try (var handlers = mockStatic(org.bukkit.event.HandlerList.class)) {
+            feature.close();
+            handlers.verifyNoInteractions();
+            assertTrue(feature.reload());
+            var listener = org.mockito.ArgumentCaptor.forClass(org.bukkit.event.Listener.class);
+            verify(manager).registerEvents(listener.capture(), same(bird));
+            feature.close();
+            feature.close();
+            handlers.verify(() -> org.bukkit.event.HandlerList.unregisterAll(listener.getValue()), times(1));
+            assertTrue(feature.itemPaths().isEmpty());
+            assertTrue(feature.reload());
+            verify(manager, times(2)).registerEvents(any(LetterListener.class), same(bird));
+        }
+    }
+
     @Test void newInstallUsesBundledConfig() throws Exception {
         doAnswer(invocation -> {
             try (var resource = getClass().getResourceAsStream("/letters-config.yml")) {

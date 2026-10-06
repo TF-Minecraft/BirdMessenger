@@ -51,18 +51,19 @@ public class LetterItems {
         try {
             ItemStack stack = template(LetterConfig.writtenLetterPath);
             if (stack == null) return null;
-            BookMeta meta = (BookMeta) stack.getItemMeta();
-            if (meta != null) {
-                copyBookContent(source, meta);
-                // Marker that identifies this item as a sealed letter when it is right-clicked.
-                meta.getPersistentDataContainer().set(sealedLetterKey, PersistentDataType.BYTE, (byte) 1);
-                if (LetterConfig.hideAuthor) {
-                    meta.setAuthor(null);
-                } else {
-                    meta.setAuthor(signer.getName());
-                }
-                stack.setItemMeta(meta);
+            if (!(stack.getItemMeta() instanceof BookMeta meta)) {
+                warn("No book metadata found for letters config path: " + LetterConfig.writtenLetterPath);
+                return null;
             }
+            copyBookContent(source, meta);
+            // Marker that identifies this item as a sealed letter when it is right-clicked.
+            meta.getPersistentDataContainer().set(sealedLetterKey, PersistentDataType.BYTE, (byte) 1);
+            if (LetterConfig.hideAuthor) {
+                meta.setAuthor(null);
+            } else {
+                meta.setAuthor(signer.getName());
+            }
+            stack.setItemMeta(meta);
             return stack;
         } catch (Exception ex) {
             warn("Failed to create sealed letter: " + ex.getMessage());
@@ -91,18 +92,19 @@ public class LetterItems {
         try {
             ItemStack stack = template(LetterConfig.writtenLetterOpenPath);
             if (stack == null) return null;
-            BookMeta meta = (BookMeta) stack.getItemMeta();
-            if (meta != null) {
-                copyBookContent(source, meta);
-                // No sealed marker here - an opened letter must not be openable again.
-                if (LetterConfig.hideAuthor) {
-                    meta.setAuthor(null);
-                } else if (source.hasAuthor()) {
-                    // Carry the signer's name across, or opening would reset it to the template's author.
-                    meta.setAuthor(source.getAuthor());
-                }
-                stack.setItemMeta(meta);
+            if (!(stack.getItemMeta() instanceof BookMeta meta)) {
+                warn("No book metadata found for letters config path: " + LetterConfig.writtenLetterOpenPath);
+                return null;
             }
+            copyBookContent(source, meta);
+            // No sealed marker here - an opened letter must not be openable again.
+            if (LetterConfig.hideAuthor) {
+                meta.setAuthor(null);
+            } else if (source.hasAuthor()) {
+                // Carry the signer's name across, or opening would reset it to the template's author.
+                meta.setAuthor(source.getAuthor());
+            }
+            stack.setItemMeta(meta);
             return stack;
         } catch (Exception ex) {
             warn("Failed to create opened letter: " + ex.getMessage());
@@ -114,6 +116,10 @@ public class LetterItems {
         ItemStack stack = TLibs.getItemAPI().getCreator().getItemFromPath(path);
         if (stack == null) {
             warn("No item found for letters config path: " + path);
+            return null;
+        }
+        if (stack.getType() != Material.WRITTEN_BOOK) {
+            warn("Expected a written book for letters config path: " + path);
             return null;
         }
         return stack.clone();

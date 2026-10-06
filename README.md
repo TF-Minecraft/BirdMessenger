@@ -25,6 +25,12 @@ Technical documentation is maintained in [TF-Minecraft/Docs](https://github.com/
 
 ## Tests
 
+If a mail file or one of its entries cannot be decoded, BirdMessenger preserves
+the original file beside it as `<filename>.corrupt-<uuid>` before later saves can
+replace it. These recovery copies include unreadable entries and should be kept
+until the affected mail has been recovered. If the copy cannot be created,
+startup fails and the affected file cannot be overwritten by the store.
+
 Install the pinned shared plugin dependencies, download the private build
 inputs, then run the build with Java 21. In Bash:
 
@@ -42,6 +48,10 @@ subshell keeps it out of your session and Maven, and Maven only runs if both
 preparation steps succeed. CI supplies it from `DEPS_TOKEN`.
 
 Tests use JUnit and Mockito and run without a live Minecraft server.
+`mvn clean verify` requires 100% production line coverage with no class or package
+exclusions. JaCoCo writes HTML and XML reports to `target/site/jacoco/`, and CI
+uploads them alongside the Surefire test reports. The gate measures lines;
+it does not require 100% branch coverage or replace testing on a live server.
 
 ## License
 

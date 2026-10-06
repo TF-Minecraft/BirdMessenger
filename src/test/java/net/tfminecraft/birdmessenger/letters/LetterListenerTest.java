@@ -254,6 +254,37 @@ class LetterListenerTest {
         }
     }
 
+    @Test void failedSigningLeavesOriginalInPlaceAndDoesNotScheduleAReplacement() {
+        PlayerEditBookEvent event = editEvent(0, true);
+        try (var bukkit = mockStatic(Bukkit.class);
+             var factories = mockConstruction(LetterItems.class, (items, context) -> {
+                 when(items.isLetter(original)).thenReturn(true);
+                 when(items.createSealedLetter(edited, player)).thenReturn(null);
+             })) {
+            bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
+            new LetterListener(plugin).onBookSign(event);
+            verify(event).setCancelled(true);
+            verify(player).sendMessage(TextUtil.color(LetterConfig.creationFailedMessage));
+            verify(inventory, never()).setItem(anyInt(), any());
+            verifyNoInteractions(scheduler);
+        }
+    }
+
+    @Test void failedOpeningKeepsTheOriginalSealAndReportsTheFailure() {
+        PlayerInteractEvent event = openEvent(EquipmentSlot.OFF_HAND);
+        try (var bukkit = mockStatic(Bukkit.class);
+             var factories = mockConstruction(LetterItems.class, (items, context) -> {
+                 when(items.isSealedLetter(original)).thenReturn(true);
+                 when(items.createOpenedLetter(edited)).thenReturn(null);
+             })) {
+            bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
+            new LetterListener(plugin).onBookOpen(event);
+            verify(player).sendMessage(TextUtil.color(LetterConfig.openFailedMessage));
+            verify(inventory, never()).setItemInOffHand(any());
+            verifyNoInteractions(scheduler);
+        }
+    }
+
     private PlayerEditBookEvent editEvent(int slot, boolean signing) {
         PlayerEditBookEvent event = mock(PlayerEditBookEvent.class);
         when(event.getPlayer()).thenReturn(player);
