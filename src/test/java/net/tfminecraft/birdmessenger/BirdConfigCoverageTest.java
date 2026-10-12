@@ -80,6 +80,7 @@ class BirdConfigCoverageTest {
             Map.entry("no-targets", config::msgNoTargets),
             Map.entry("letter-returned", config::msgLetterReturned),
             Map.entry("letter-cancelled", config::msgLetterCancelled),
+            Map.entry("unsent-returned", config::msgUnsentReturned),
             Map.entry("picker-select", config::msgPickerSelect),
             Map.entry("picker-confirm-needed", config::msgPickerConfirmNeeded),
             Map.entry("recipient-unavailable", config::msgRecipientUnavailable),

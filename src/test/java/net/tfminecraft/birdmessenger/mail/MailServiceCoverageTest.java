@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -166,15 +167,14 @@ class MailServiceCoverageTest {
       f.service.tryDeliverPending(f.owner, null);
       f.service.tryDeliverPending(f.owner, f.origin);
       f.service.tryDeliverPending(f.owner, f.ownerSession);
-      verify(f.store, never()).pollPending(any());
+      verify(f.store, never()).drainPending(any(), any(), any());
       f.activeOwner();
       ItemStack letter = mock(ItemStack.class);
       f.queuePending(new MailStore.PendingLetter(f.ownerId, f.senderId, "Recipient", letter));
       f.bukkit.when(Bukkit::getOnlinePlayers).thenReturn(Arrays.asList(null, f.sender, f.owner));
       f.service.flushPendingForOnlinePlayers();
-      verify(f.store, times(2)).pollPending(f.ownerSession.ref());
+      verify(f.store).drainPending(eq(f.ownerSession.ref()), any(), any());
       verify(f.delivery).deliver(f.owner, letter, f.senderId, "Recipient");
-      verify(f.store, never()).takePending(anyString());
     }
   }
 
@@ -196,16 +196,34 @@ class MailServiceCoverageTest {
       verify(f.delivery).deliver(f.owner, first, f.senderId, "First");
       verify(f.delivery, never()).deliver(f.owner, second, f.senderId, "Second");
       assertSame(second, f.pending.get(f.ownerSession.ref()).getFirst().item);
-      verify(f.store).pollPending(f.ownerSession.ref());
+      verify(f.store).drainPending(eq(f.ownerSession.ref()), any(), any());
 
       CharacterSession returned = new CharacterSession(f.ownerSession.ref(), 4L);
       f.current.put(f.ownerId, returned);
       f.service.tryDeliverPending(f.owner, f.ownerSession);
       assertEquals(1, f.pending.get(f.ownerSession.ref()).size());
-      verify(f.store).pollPending(f.ownerSession.ref());
+      verify(f.store).drainPending(eq(f.ownerSession.ref()), any(), any());
       f.service.tryDeliverPending(f.owner, returned);
       verify(f.delivery).deliver(f.owner, second, f.senderId, "Second");
       assertTrue(f.pending.get(f.ownerSession.ref()).isEmpty());
+    }
+  }
+
+  @Test
+  void returnedLettersComeBackWithTheirOwnMessageInsteadOfAnAddressee() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      ItemStack unsent = mock(ItemStack.class);
+      ItemStack mail = mock(ItemStack.class);
+      f.queuePending(MailStore.PendingLetter.returned(f.ownerId, unsent));
+      f.queuePending(new MailStore.PendingLetter(f.ownerId, f.senderId, "Recipient", mail));
+
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+
+      var order = inOrder(f.delivery);
+      order.verify(f.delivery).returnUnsent(f.owner, unsent);
+      order.verify(f.delivery).deliver(f.owner, mail, f.senderId, "Recipient");
+      verifyNoMoreInteractions(f.delivery);
     }
   }
 
@@ -218,7 +236,7 @@ class MailServiceCoverageTest {
       when(replacement.isOnline()).thenReturn(true);
       f.bukkit.when(() -> Bukkit.getPlayer(f.ownerId)).thenReturn(replacement);
       f.service.tryDeliverPending(f.owner, f.ownerSession);
-      verify(f.store, never()).pollPending(any());
+      verify(f.store, never()).drainPending(any(), any(), any());
       verifyNoInteractions(f.delivery);
     }
   }
@@ -299,7 +317,7 @@ class MailServiceCoverageTest {
   }
 
   @Test
-  void pendingQueueFailureRetainsTheInFlightLetterForARetry() {
+  void pendingQueueFailureLeavesTheLetterInFlightUntilTheNextResume() {
     for (String failure : List.of("Conflicting pending owner", "Mail requires recovery")) {
       try (Fixture f = new Fixture()) {
         StoredMail mail = f.mail(0);
@@ -523,10 +541,15 @@ class MailServiceCoverageTest {
           .when(store)
           .putInFlight(any());
       when(store.removeInFlight(any())).thenAnswer(call -> inFlight.remove(call.getArgument(0)));
-      when(store.pollPending(any())).thenAnswer(call -> {
+      doAnswer(call -> {
         Deque<MailStore.PendingLetter> letters = pending.get(call.getArgument(0));
-        return letters == null ? null : letters.pollFirst();
-      });
+        BooleanSupplier stillCurrent = call.getArgument(1);
+        Consumer<MailStore.PendingLetter> deliver = call.getArgument(2);
+        while (stillCurrent.getAsBoolean() && letters != null && !letters.isEmpty()) {
+          deliver.accept(letters.pollFirst());
+        }
+        return null;
+      }).when(store).drainPending(any(), any(), any());
       current.put(senderId, origin);
       identities.when(() -> Characters.currentSession(any(Player.class))).thenAnswer(call -> {
         Player player = call.getArgument(0);
@@ -575,6 +598,7 @@ class MailServiceCoverageTest {
       assertEquals(origin.ref().ownerId(), refund.getValue().ownerUuid);
       assertSame(letter, refund.getValue().item);
       assertNull(refund.getValue().senderUuid);
+      assertTrue(refund.getValue().returned);
       assertTrue(inFlight.isEmpty());
       assertTrue(scheduled.isEmpty());
       give.verifyNoInteractions();

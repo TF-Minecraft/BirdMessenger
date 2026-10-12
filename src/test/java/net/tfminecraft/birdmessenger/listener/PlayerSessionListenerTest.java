@@ -22,6 +22,7 @@ import org.bukkit.event.Event;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.RegisteredListener;
 import org.bukkit.plugin.java.JavaPluginLoader;
@@ -51,15 +52,19 @@ class PlayerSessionListenerTest {
     var registrations =
         new JavaPluginLoader(server)
             .createRegisteredListeners(new PlayerSessionListener(plugin), plugin);
-    assertEquals(3, registrations.size());
+    assertEquals(4, registrations.size());
     assertEquals(
         EventPriority.LOWEST,
         registrations.get(CharacterSessionEndEvent.class).iterator().next().getPriority());
+    assertEquals(
+        EventPriority.LOWEST,
+        registrations.get(PlayerDeathEvent.class).iterator().next().getPriority());
     CharacterSessionStartEvent.getHandlerList()
         .registerAll(registrations.get(CharacterSessionStartEvent.class));
     CharacterSessionEndEvent.getHandlerList()
         .registerAll(registrations.get(CharacterSessionEndEvent.class));
     PlayerQuitEvent.getHandlerList().registerAll(registrations.get(PlayerQuitEvent.class));
+    PlayerDeathEvent.getHandlerList().registerAll(registrations.get(PlayerDeathEvent.class));
   }
 
   @AfterEach
@@ -70,16 +75,17 @@ class PlayerSessionListenerTest {
   @ParameterizedTest
   @EnumSource(Reason.class)
   void endPassesTheOutgoingTokenBeforeNormalPriorityBodyChanges(Reason reason) throws Exception {
+    boolean leaving = reason == Reason.QUIT || reason == Reason.SHUTDOWN;
     List<String> order = new ArrayList<>();
     doAnswer(call -> {
       order.add("end");
       return null;
-    }).when(sessions).end(player, token);
+    }).when(sessions).end(player, token, leaving);
     CharacterSessionEndEvent.getHandlerList().register(
         new RegisteredListener(
             new Listener() {},
             (listener, event) -> {
-              verify(sessions).end(player, token);
+              verify(sessions).end(player, token, leaving);
               order.add("normal");
             },
             EventPriority.NORMAL,
@@ -112,9 +118,20 @@ class PlayerSessionListenerTest {
   void quitUsesTheFallbackRefundWithoutStartingDelivery() throws Exception {
     dispatch(new PlayerQuitEvent(player, Component.empty()));
 
-    verify(sessions).returnLetter(player, false);
+    verify(sessions).leave(player);
     verifyNoMoreInteractions(sessions);
     verifyNoInteractions(mail);
+  }
+
+  @Test
+  void deathIsRecordedBeforeOtherHandlersCanEndTheSession() throws Exception {
+    PlayerDeathEvent death = mock(PlayerDeathEvent.class);
+    when(death.getHandlers()).thenReturn(PlayerDeathEvent.getHandlerList());
+
+    dispatch(death);
+
+    verify(sessions).dying(death);
+    verifyNoMoreInteractions(sessions);
   }
 
   private static void dispatch(Event event) throws Exception {

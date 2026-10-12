@@ -17,6 +17,7 @@ messages:
   letter-opened: "&7The seal breaks as you open the letter..."
   letter-creation-failed: "&cFailed to create letter. Please make a ticket."
   letter-open-failed: "&cFailed to open letter. Please make a ticket."
+  letter-needs-character: "&cChoose a character before writing letters. Your changes were not saved."
 
 # Feature settings
 settings:

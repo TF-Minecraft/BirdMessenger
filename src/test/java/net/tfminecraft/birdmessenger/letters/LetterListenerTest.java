@@ -362,7 +362,7 @@ class LetterListenerTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"edit", "sign", "open"})
-    void pendingCharactersCannotRewriteLettersButMayStillReadThem(String operation) {
+    void pendingCharactersCannotRewriteLettersAreToldWhyAndMayStillReadThem(String operation) {
         when(services.load(CharacterIdentity.class)).thenReturn(identity);
         try (var bukkit = mockBukkit(); var factories = successfulFactories()) {
             LetterListener listener = new LetterListener(plugin);
@@ -381,7 +381,8 @@ class LetterListenerTest {
             verify(factory, never()).createEditedLetter(any(), any());
             verify(factory, never()).createSealedLetter(any(), any());
             verify(factory, never()).createOpenedLetter(any());
-            verify(player, never()).sendMessage(anyString());
+            if (operation.equals("open")) verify(player, never()).sendMessage(anyString());
+            else verify(player).sendMessage(contains("Choose a character before writing letters"));
         }
     }
 

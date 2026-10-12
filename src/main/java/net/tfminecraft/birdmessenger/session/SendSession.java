@@ -37,7 +37,14 @@ public final class SendSession {
 	public void setLetterInventory(Inventory inventory) { letterInventory = inventory; }
 
 	public boolean isCurrent(Player owner) {
-		return isConnected(owner) && Characters.isCurrent(characterSession);
+		return player == owner && isCurrent(owner, characterSession);
+	}
+
+	/** True while the player is online as the session's owner and the session is still current. */
+	public static boolean isCurrent(Player player, CharacterSession session) {
+		return player != null && session != null && player.isOnline()
+				&& player.getUniqueId().equals(session.ref().ownerId())
+				&& Bukkit.getPlayer(session.ref().ownerId()) == player && Characters.isCurrent(session);
 	}
 
 	public boolean isConnected(Player owner) {

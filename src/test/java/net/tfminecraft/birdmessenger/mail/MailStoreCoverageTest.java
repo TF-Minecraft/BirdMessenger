@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,7 +32,8 @@ class MailStoreCoverageTest {
   private static final UUID SENDER = UUID.fromString("6b00e6b9-c3d4-4d77-8457-c17d78c20584");
   private static final UUID OWNER = UUID.fromString("cd9f54e7-947a-456d-9010-29d3e548af6b");
   private static final UUID ID = UUID.fromString("3af8adf2-d931-43ec-b54e-cbb36d1eb03c");
-  private static final String CHARACTER = "character-one";
+  private static final String CHARACTER = "5e0b8c7a-2d41-4f6e-9b3a-7c8d1e2f3a4b";
+  private static final CharacterRef REF = new CharacterRef(OWNER, UUID.fromString(CHARACTER));
   @TempDir Path root;
   private BirdMessenger plugin;
   private UnsafeValues unsafe;
@@ -120,7 +122,7 @@ class MailStoreCoverageTest {
     MailStore restored = new MailStore(plugin);
     restored.load();
 
-    List<MailStore.PendingLetter> letters = restored.takePending(CHARACTER);
+    List<MailStore.PendingLetter> letters = drain(restored, REF);
     assertEquals(2, letters.size(), "Only the broken entry should be skipped");
     assertEquals(before, letters.get(0).item.serialize());
     assertEquals(after, letters.get(1).item.serialize());
@@ -144,7 +146,7 @@ class MailStoreCoverageTest {
     MailStore restored = new MailStore(plugin);
     restored.load();
 
-    List<MailStore.PendingLetter> letters = restored.takePending(CHARACTER);
+    List<MailStore.PendingLetter> letters = drain(restored, REF);
     assertEquals(2, letters.size(), "Legacy format also isolates broken entries");
     assertEquals(before, letters.get(0).item.serialize());
     assertEquals(after, letters.get(1).item.serialize());
@@ -162,7 +164,7 @@ class MailStoreCoverageTest {
     }
     MailStore store = new MailStore(plugin);
     store.load();
-    store.takePending(CHARACTER);
+    drain(store, REF);
     store.saveAll();
     for (String file : List.of("in_flight_mail.yml", "pending_mail.yml")) {
       assertEquals(damaged, Files.readString(recoveryCopy(file)));
@@ -188,14 +190,14 @@ class MailStoreCoverageTest {
     String originalFlight = Files.readString(root.resolve("mail-data/in_flight_mail.yml"));
     MailStore store = new MailStore(plugin);
     store.load();
-    assertEquals(1, store.takePending(CHARACTER).size());
+    assertEquals(1, drain(store, REF).size());
     assertNotNull(store.removeInFlight(ID));
     store.saveAll();
     assertEquals(originalPending, Files.readString(recoveryCopy("pending_mail.yml")));
     assertEquals(originalFlight, Files.readString(recoveryCopy("in_flight_mail.yml")));
     MailStore restored = new MailStore(plugin);
     restored.load();
-    assertFalse(restored.hasPending(CHARACTER));
+    assertEquals(List.of(), pending(restored, CHARACTER));
     assertTrue(restored.inFlight().isEmpty());
     assertEquals(originalPending, Files.readString(recoveryCopy("pending_mail.yml")));
   }
@@ -258,21 +260,19 @@ class MailStoreCoverageTest {
         new StoredMail(ID, SENDER, OWNER, null, "Alice", item(serializedItem("Ignored")), 1L));
     store.addPending(null, new MailStore.PendingLetter(OWNER, SENDER, "Alice", null));
     store.addPending(CHARACTER, null);
-    assertNull(store.pollPending(null));
-    assertNull(store.pollPending(new CharacterRef(OWNER, ID)));
+    assertNull(takeOne(store, null));
+    assertNull(takeOne(store, new CharacterRef(OWNER, ID)));
     assertNull(store.removeInFlight(null));
-    assertFalse(store.hasPending(null));
-    assertFalse(store.hasPending(CHARACTER));
-    assertTrue(store.takePending(null).isEmpty());
+    assertEquals(List.of(), pending(store, CHARACTER));
     assertTrue(store.inFlight().isEmpty());
     assertFalse(Files.exists(root.resolve("mail-data/in_flight_mail.yml")));
     assertFalse(Files.exists(root.resolve("mail-data/pending_mail.yml")));
-    assertTrue(store.takePending(CHARACTER).isEmpty());
+    assertTrue(drain(store, REF).isEmpty());
     store.saveAll();
     MailStore restored = new MailStore(plugin);
     restored.load();
     assertTrue(restored.inFlight().isEmpty());
-    assertFalse(restored.hasPending(CHARACTER));
+    assertEquals(List.of(), pending(restored, CHARACTER));
     verifyNoInteractions(unsafe);
   }
 
@@ -284,14 +284,14 @@ class MailStoreCoverageTest {
     when(original.clone()).thenThrow(failure);
     StoredMail mail = new StoredMail(ID, SENDER, OWNER, CHARACTER, "Alice", original, 12L);
     assertSame(failure, assertThrows(IllegalStateException.class, () -> store.addPending(mail)));
-    assertFalse(store.hasPending(CHARACTER));
+    assertEquals(List.of(), pending(store, CHARACTER));
     assertDoesNotThrow(store::saveAll);
     YamlConfiguration saved =
         YamlConfiguration.loadConfiguration(root.resolve("mail-data/pending_mail.yml").toFile());
     assertFalse(saved.contains("characters"));
     MailStore restored = new MailStore(plugin);
     restored.load();
-    assertFalse(restored.hasPending(CHARACTER));
+    assertEquals(List.of(), pending(restored, CHARACTER));
   }
 
   @Test
@@ -303,12 +303,12 @@ class MailStoreCoverageTest {
     store.addPending(new StoredMail(UUID.randomUUID(), null, OWNER, CHARACTER, null, second, 13L));
     verify(original).clone();
     verify(second).clone();
-    assertTrue(store.hasPending(CHARACTER));
+    assertEquals(2, pending(store, CHARACTER).size());
 
     MailStore restored = new MailStore(plugin);
     restored.load();
-    assertTrue(restored.hasPending(CHARACTER));
-    List<MailStore.PendingLetter> letters = restored.takePending(CHARACTER);
+    assertEquals(2, pending(restored, CHARACTER).size());
+    List<MailStore.PendingLetter> letters = drain(restored, REF);
     assertEquals(2, letters.size());
     assertNotSame(original, letters.get(0).item);
     assertEquals(original.serialize(), letters.get(0).item.serialize());
@@ -318,11 +318,51 @@ class MailStoreCoverageTest {
     assertEquals("Lady Alice", letters.get(0).addresseeDisplayTab);
     assertNull(letters.get(1).senderUuid);
     assertEquals("", letters.get(1).addresseeDisplayTab);
-    assertFalse(restored.hasPending(CHARACTER));
-    assertTrue(restored.takePending(CHARACTER).isEmpty());
+    assertEquals(List.of(), pending(restored, CHARACTER));
+    assertTrue(drain(restored, REF).isEmpty());
     restored.load();
-    assertFalse(restored.hasPending(CHARACTER), "Consumed letters must not return after restart");
+    assertEquals(List.of(), pending(restored, CHARACTER), "Consumed letters must not return after restart");
     assertEquals(2, letters.size(), "Previously returned letters remain available to delivery");
+  }
+
+  @Test
+  void drainSavesOnceAfterHandingOverEveryLetterAndKeepsTheReturnedFlag() {
+    MailStore store = new MailStore(plugin);
+    store.addPending(
+        CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "Alice", item(serializedItem("First"))));
+    store.addPending(CHARACTER, MailStore.PendingLetter.returned(OWNER, item(serializedItem("Unsent"))));
+    MailStore restored = new MailStore(plugin);
+    restored.load();
+    List<MailStore.PendingLetter> handed = new ArrayList<>();
+    restored.drainPending(REF, () -> true, letter -> {
+      assertEquals(2, savedLetters(), "The file is rewritten once, after the drain");
+      handed.add(letter);
+    });
+    assertEquals(0, savedLetters());
+    assertEquals(2, handed.size());
+    assertFalse(handed.get(0).returned);
+    assertEquals(SENDER, handed.get(0).senderUuid);
+    assertTrue(handed.get(1).returned);
+    assertNull(handed.get(1).senderUuid);
+    assertEquals(serializedItem("Unsent"), handed.get(1).item.serialize());
+  }
+
+  @Test
+  void failedHandOverStillSavesTheLettersAlreadyTakenAndKeepsTheRest() {
+    MailStore store = new MailStore(plugin);
+    store.addPending(CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "A", item(serializedItem("A"))));
+    store.addPending(CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "B", item(serializedItem("B"))));
+    IllegalStateException failure = new IllegalStateException("Inventory unavailable");
+    assertSame(failure, assertThrows(IllegalStateException.class,
+        () -> store.drainPending(REF, () -> true, letter -> { throw failure; })));
+    assertEquals(1, savedLetters());
+    assertEquals("B", pending(store, CHARACTER).getFirst().addresseeDisplayTab);
+  }
+
+  private int savedLetters() {
+    return YamlConfiguration.loadConfiguration(root.resolve("mail-data/pending_mail.yml").toFile())
+        .getMapList("characters." + CHARACTER + ".letters")
+        .size();
   }
 
   @Test
@@ -348,7 +388,7 @@ class MailStoreCoverageTest {
     store.load();
     CharacterRef ref = new CharacterRef(OWNER, ID);
 
-    MailStore.PendingLetter first = store.pollPending(ref);
+    MailStore.PendingLetter first = takeOne(store, ref);
     assertNotNull(first);
     assertEquals(OWNER, first.ownerUuid);
     assertEquals(SENDER, first.senderUuid);
@@ -362,23 +402,23 @@ class MailStoreCoverageTest {
 
     MailStore restored = new MailStore(plugin);
     restored.load();
-    MailStore.PendingLetter second = restored.pollPending(ref);
+    MailStore.PendingLetter second = takeOne(restored, ref);
     assertNotNull(second);
     assertEquals(serializedItem("Second"), second.item.serialize());
     assertEquals("Lady Alice", second.addresseeDisplayTab);
-    assertNull(restored.pollPending(ref));
+    assertNull(takeOne(restored, ref));
     YamlConfiguration drained = YamlConfiguration.loadConfiguration(file.toFile());
     assertFalse(drained.contains("characters." + uppercase));
     assertEquals(
         java.util.Set.of(ID.toString(), unrelated, CHARACTER, "1-1-1-1-1"),
         drained.getConfigurationSection("characters").getKeys(false));
     restored.load();
-    assertNull(restored.pollPending(ref), "Consumed letters cannot return after reload");
-    MailStore.PendingLetter other = restored.pollPending(new CharacterRef(otherOwner, ID));
+    assertNull(takeOne(restored, ref), "Consumed letters cannot return after reload");
+    MailStore.PendingLetter other = takeOne(restored, new CharacterRef(otherOwner, ID));
     assertNotNull(other);
     assertEquals(otherOwner, other.ownerUuid);
     for (String key : List.of(unrelated, CHARACTER, "1-1-1-1-1")) {
-      assertEquals(serializedItem(key), restored.takePending(key).getFirst().item.serialize());
+      assertEquals(serializedItem(key), pending(restored, key).getFirst().item.serialize());
     }
   }
 
@@ -392,13 +432,13 @@ class MailStoreCoverageTest {
     Files.writeString(file, original);
     store.load();
 
-    assertNull(store.pollPending(new CharacterRef(OWNER, ID)));
+    assertNull(takeOne(store, new CharacterRef(OWNER, ID)));
     assertNull(
-        store.pollPending(
+        takeOne(store, 
             new CharacterRef(OWNER, UUID.fromString("00000001-0001-0001-0001-000000000001"))));
-    assertNull(store.pollPending(null));
+    assertNull(takeOne(store, null));
     assertEquals(original, Files.readString(file));
-    assertTrue(store.hasPending("1-1-1-1-1"));
+    assertEquals(1, pending(store, "1-1-1-1-1").size());
   }
 
   @Test
@@ -414,7 +454,7 @@ class MailStoreCoverageTest {
 
     MailStore restored = new MailStore(plugin);
     restored.load();
-    MailStore.PendingLetter refund = restored.pollPending(new CharacterRef(OWNER, ID));
+    MailStore.PendingLetter refund = takeOne(restored, new CharacterRef(OWNER, ID));
     assertNotNull(refund);
     assertNotSame(original, refund.item);
     assertEquals(captured, refund.item.serialize());
@@ -422,7 +462,7 @@ class MailStoreCoverageTest {
     assertEquals(SENDER, refund.senderUuid);
     assertEquals("Lady Alice", refund.addresseeDisplayTab);
     restored.load();
-    assertNull(restored.pollPending(new CharacterRef(OWNER, ID)));
+    assertNull(takeOne(restored, new CharacterRef(OWNER, ID)));
   }
 
   @Test
@@ -448,7 +488,7 @@ class MailStoreCoverageTest {
                 new StoredMail(
                     UUID.randomUUID(), SENDER, otherOwner, ID.toString(), "Other", conflictingItem, 1L)));
     assertEquals(original, Files.readString(file));
-    List<MailStore.PendingLetter> letters = store.takePending(ID.toString());
+    List<MailStore.PendingLetter> letters = drain(store, new CharacterRef(OWNER, ID));
     assertEquals(1, letters.size());
     assertEquals(OWNER, letters.getFirst().ownerUuid);
     assertEquals(serializedItem("Keep"), letters.getFirst().item.serialize());
@@ -468,7 +508,7 @@ class MailStoreCoverageTest {
           .when(() -> Files.copy(eq(file), any(Path.class)))
           .thenThrow(new IOException("Cannot back up"));
       assertThrows(IllegalStateException.class, store::load);
-      assertThrows(IllegalStateException.class, () -> store.pollPending(ref));
+      assertThrows(IllegalStateException.class, () -> takeOne(store, ref));
       assertThrows(
           IllegalStateException.class,
           () ->
@@ -479,8 +519,8 @@ class MailStoreCoverageTest {
     }
 
     store.load();
-    assertEquals(serializedItem("Keep"), store.pollPending(ref).item.serialize());
-    assertNull(store.pollPending(ref), "The blocked refund must not have entered the queue");
+    assertEquals(serializedItem("Keep"), takeOne(store, ref).item.serialize());
+    assertNull(takeOne(store, ref), "The blocked refund must not have entered the queue");
     assertEquals(damaged, Files.readString(recoveryCopy("pending_mail.yml")));
   }
 
@@ -576,7 +616,7 @@ class MailStoreCoverageTest {
 
     MailStore store = new MailStore(plugin);
     store.load();
-    List<MailStore.PendingLetter> letters = store.takePending(CHARACTER);
+    List<MailStore.PendingLetter> letters = drain(store, REF);
     assertEquals(1, letters.size());
     assertEquals(serializedItem("Recoverable"), letters.getFirst().item.serialize());
     assertNull(
@@ -584,7 +624,7 @@ class MailStoreCoverageTest {
     assertEquals("", letters.getFirst().addresseeDisplayTab);
     for (String invalid :
         List.of("missing-owner", "invalid-owner", "invalid-list", "empty-list", "missing-list")) {
-      assertFalse(store.hasPending(invalid), invalid);
+      assertEquals(List.of(), pending(store, invalid), invalid);
     }
     verify(logger, times(4)).warning("Could not load pending letter for " + CHARACTER);
     verify(logger).warning("Could not load pending mail for invalid-owner");
@@ -603,7 +643,7 @@ class MailStoreCoverageTest {
     assertDoesNotThrow(() -> store.putInFlight(mail));
     assertDoesNotThrow(() -> store.addPending(mail));
     assertSame(mail, store.inFlight().get(ID));
-    assertTrue(store.hasPending(CHARACTER));
+    assertEquals(1, pending(store, CHARACTER).size());
     verify(logger)
         .log(eq(Level.SEVERE), eq("Could not save in-flight mail"), any(IOException.class));
     verify(logger).log(eq(Level.SEVERE), eq("Could not save pending mail"), any(IOException.class));
@@ -615,7 +655,7 @@ class MailStoreCoverageTest {
     restored.load();
     assertEquals(mail.getItem().serialize(), restored.inFlight().get(ID).getItem().serialize());
     assertEquals(
-        mail.getItem().serialize(), restored.takePending(CHARACTER).getFirst().item.serialize());
+        mail.getItem().serialize(), drain(restored, REF).getFirst().item.serialize());
   }
 
   @Test
@@ -633,7 +673,7 @@ class MailStoreCoverageTest {
     assertThrows(IllegalStateException.class, store::load);
     assertThrows(IllegalStateException.class, store::saveAll);
     assertSame(mail, store.inFlight().get(ID));
-    assertTrue(store.hasPending(CHARACTER));
+    assertEquals(1, pending(store, CHARACTER).size());
   }
 
   @Test
@@ -648,7 +688,7 @@ class MailStoreCoverageTest {
     }
     assertDoesNotThrow(store::load);
     assertSame(mail, store.inFlight().get(ID));
-    assertTrue(store.hasPending(CHARACTER));
+    assertEquals(1, pending(store, CHARACTER).size());
   }
 
   @Test
@@ -662,7 +702,7 @@ class MailStoreCoverageTest {
     Files.writeString(root.resolve("mail-data/pending_mail.yml"), "# intentionally empty\n");
     store.load();
     assertTrue(store.inFlight().isEmpty());
-    assertFalse(store.hasPending(CHARACTER));
+    assertEquals(List.of(), pending(store, CHARACTER));
   }
 
   @Test
@@ -673,6 +713,31 @@ class MailStoreCoverageTest {
     assertEquals(OWNER, letter.ownerUuid);
     assertNull(letter.senderUuid);
     assertEquals("", letter.addresseeDisplayTab);
+  }
+
+  private static List<MailStore.PendingLetter> drain(MailStore store, CharacterRef ref) {
+    List<MailStore.PendingLetter> letters = new ArrayList<>();
+    store.drainPending(ref, () -> true, letters::add);
+    return letters;
+  }
+
+  private static MailStore.PendingLetter takeOne(MailStore store, CharacterRef ref) {
+    List<MailStore.PendingLetter> taken = new ArrayList<>();
+    store.drainPending(ref, taken::isEmpty, taken::add);
+    return taken.isEmpty() ? null : taken.getFirst();
+  }
+
+  /** Reads the queue without consuming it, as delivery would. */
+  @SuppressWarnings("unchecked")
+  private static List<MailStore.PendingLetter> pending(MailStore store, String characterId) {
+    try {
+      var field = MailStore.class.getDeclaredField("pending");
+      field.setAccessible(true);
+      var letters = ((Map<String, List<MailStore.PendingLetter>>) field.get(store)).get(characterId);
+      return letters == null ? List.of() : List.copyOf(letters);
+    } catch (ReflectiveOperationException ex) {
+      throw new AssertionError(ex);
+    }
   }
 
   private static ItemStack item(Map<String, Object> serialized) {

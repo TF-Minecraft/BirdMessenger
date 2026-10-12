@@ -123,6 +123,27 @@ class DeliverySessionCoverageTest {
   }
 
   @Test
+  void returnedLetterArrivesAsTheWritersOwnUnsentLetter() {
+    BirdConfig config = mock(BirdConfig.class);
+    when(config.msgUnsentReturned()).thenReturn("Unsent back");
+    MailDelivery delivery = new MailDelivery(config);
+    Player owner = mock(Player.class);
+    ItemStack letter = mock(ItemStack.class);
+    ItemStack copy = mock(ItemStack.class);
+    when(letter.clone()).thenReturn(copy);
+    try (var give = mockStatic(ItemGive.class)) {
+      delivery.returnUnsent(null, letter);
+      delivery.returnUnsent(owner, null);
+      give.verifyNoInteractions();
+      delivery.returnUnsent(owner, letter);
+      give.verify(() -> ItemGive.giveOrDrop(owner, copy));
+    }
+    verify(owner).sendMessage("Unsent back");
+    verify(owner, never()).sendMessage(contains("letter for"));
+    verify(owner).playSound((Location) isNull(), eq(Sound.ENTITY_PARROT_FLY), eq(1f), eq(1f));
+  }
+
+  @Test
   void characterMatchingRequiresReadyOwnerCanonicalIdAndCurrentConnection() {
     Player owner = mock(Player.class);
     UUID ownerId = UUID.randomUUID();

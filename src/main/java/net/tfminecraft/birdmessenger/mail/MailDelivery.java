@@ -8,6 +8,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import net.tfminecraft.birdmessenger.BirdConfig;
+import net.tfminecraft.birdmessenger.session.SendSession;
 import net.tfminecraft.birdmessenger.util.ItemGive;
 import net.tfminecraft.tlibs.character.Characters;
 
@@ -20,14 +21,12 @@ public final class MailDelivery {
 	}
 
 	public static boolean isActiveCharacter(Player owner, String characterId) {
-		if (owner == null || !owner.isOnline() || characterId == null || characterId.isBlank()
-				|| Bukkit.getPlayer(owner.getUniqueId()) != owner) {
+		if (owner == null || characterId == null) {
 			return false;
 		}
 		return Characters.currentSession(owner)
-				.filter(session -> owner.getUniqueId().equals(session.ref().ownerId()))
 				.filter(session -> characterId.equalsIgnoreCase(session.ref().characterId().toString()))
-				.filter(Characters::isCurrent)
+				.filter(session -> SendSession.isCurrent(owner, session))
 				.isPresent();
 	}
 
@@ -48,6 +47,16 @@ public final class MailDelivery {
 				sender.playSound(sender.getLocation(), Sound.ENTITY_PARROT_FLY, 1f, 1f);
 			}
 		}
+	}
+
+	/** Hands back an unsent letter that waited for its writer's character to be played again. */
+	public void returnUnsent(Player owner, ItemStack letter) {
+		if (owner == null || letter == null) {
+			return;
+		}
+		ItemGive.giveOrDrop(owner, letter.clone());
+		owner.sendMessage(config.msgUnsentReturned());
+		owner.playSound(owner.getLocation(), Sound.ENTITY_PARROT_FLY, 1f, 1f);
 	}
 
 	public void deliver(Player owner, StoredMail mail) {

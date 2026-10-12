@@ -34,6 +34,7 @@ messages:
   bird-left: "&aThe bird has left with your letter. &7Estimated arrival in {time}."
   letter-returned: "&eYour letter has been returned to you."
   letter-cancelled: "&cLetter cancelled."
+  unsent-returned: "&bA bird lands at your feet and returns your unsent letter."
   picker-select: "&7Click a character, then confirm."
   picker-confirm-needed: "&cSelect a character first."
   recipient-unavailable: "&cThat character is no longer available for mail. Your letter has been returned."
