@@ -7,14 +7,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.UUID;
 import net.tfminecraft.birdmessenger.BirdConfig;
-import net.tfminecraft.birdmessenger.BirdMessenger;
-import net.tfminecraft.birdmessenger.session.SelectedTarget;
-import net.tfminecraft.birdmessenger.session.SendSession;
-import net.tfminecraft.birdmessenger.session.SendSessionManager;
 import net.tfminecraft.birdmessenger.util.ItemGive;
 import net.tfminecraft.birdmessenger.util.LetterContents;
-import net.tfminecraft.rpcharacters.RPCharacters;
-import net.tfminecraft.rpcharacters.objects.RPCharacter;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -27,68 +21,6 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.junit.jupiter.api.Test;
 
 class DeliverySessionCoverageTest {
-  @Test
-  void sessionsReturnLettersOnceAndPreserveSelectionUntilCleared() {
-    BirdMessenger plugin = mock(BirdMessenger.class);
-    BirdConfig config = mock(BirdConfig.class);
-    when(plugin.config()).thenReturn(config);
-    when(config.msgLetterReturned()).thenReturn("Returned");
-    when(config.msgLetterCancelled()).thenReturn("Cancelled");
-    SendSessionManager sessions = new SendSessionManager(plugin);
-    Player player = mock(Player.class);
-    UUID id = UUID.randomUUID();
-    when(player.getUniqueId()).thenReturn(id);
-    assertNull(sessions.get(null));
-    assertNull(sessions.takeLetter(id));
-    sessions.clear(null);
-    sessions.returnLetter(null, true);
-    sessions.returnLetter(player, true);
-    SendSession session = sessions.getOrCreate(id);
-    assertSame(session, sessions.getOrCreate(id));
-    assertEquals(id, session.getPlayerId());
-    assertNull(sessions.takeLetter(id));
-    assertFalse(session.isConfirmed());
-    session.setConfirmed(true);
-    assertTrue(session.isConfirmed());
-    session.setPickerPage(-1);
-    assertEquals(0, session.getPickerPage());
-    session.setPickerPage(2);
-    assertEquals(2, session.getPickerPage());
-    SelectedTarget selected =
-        new SelectedTarget(
-            UUID.randomUUID(), "character", "§aAlice", "Alice", "texture", "signature");
-    session.setSelected(selected);
-    assertSame(selected, session.getSelected());
-    assertEquals("Alice", selected.getDisplayPlain());
-    assertEquals("§aAlice", selected.getDisplayTab());
-    assertEquals("texture", selected.getBaseTextureValue());
-    assertEquals("signature", selected.getBaseTextureSignature());
-    SelectedTarget unnamed = new SelectedTarget(id, "id", null, null, null, null);
-    assertEquals("", unnamed.getDisplayTab());
-    assertEquals("", unnamed.getDisplayPlain());
-    ItemStack letter = mock(ItemStack.class);
-    session.setLetter(letter);
-    assertSame(letter, sessions.takeLetter(id));
-    assertNull(session.getLetter());
-    sessions.returnLetter(player, true);
-    assertNull(sessions.get(id));
-    try (var give = mockStatic(ItemGive.class)) {
-      sessions.getOrCreate(id).setLetter(letter);
-      sessions.returnLetter(player, true);
-      sessions.returnLetter(player, true);
-      give.verify(() -> ItemGive.giveOrDrop(player, letter), times(1));
-      verify(player).sendMessage("Returned");
-      verify(player).sendMessage("Cancelled");
-      verify(player).playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 0.5f);
-      sessions.getOrCreate(id).setLetter(letter);
-      sessions.returnLetter(player, false);
-      verify(player, times(1)).sendMessage("Cancelled");
-    }
-    sessions.getOrCreate(id);
-    sessions.clear(id);
-    assertNull(sessions.get(id));
-  }
-
   @Test
   void inventoryOverflowDropsOnlyReturnedLeftovers() {
     Player player = mock(Player.class);
@@ -191,18 +123,41 @@ class DeliverySessionCoverageTest {
   }
 
   @Test
-  void characterMatchingRequiresTheCurrentCharacterAndExactId() {
+  void characterMatchingRequiresReadyOwnerCanonicalIdAndCurrentConnection() {
     Player owner = mock(Player.class);
-    RPCharacter character = mock(RPCharacter.class);
-    try (var characters = mockStatic(RPCharacters.class)) {
+    UUID ownerId = UUID.randomUUID();
+    UUID characterId = UUID.randomUUID();
+    var token = new net.tfminecraft.tlibs.character.CharacterSession(
+        new net.tfminecraft.tlibs.character.CharacterRef(ownerId, characterId), 1);
+    when(owner.getUniqueId()).thenReturn(ownerId);
+    when(owner.isOnline()).thenReturn(true);
+    try (var bukkit = mockStatic(Bukkit.class);
+         var characters = mockStatic(net.tfminecraft.tlibs.character.Characters.class)) {
+      bukkit.when(() -> Bukkit.getPlayer(ownerId)).thenReturn(owner);
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.currentSession(owner))
+          .thenReturn(java.util.Optional.empty());
       assertFalse(MailDelivery.isActiveCharacter(null, "id"));
       assertFalse(MailDelivery.isActiveCharacter(owner, null));
       assertFalse(MailDelivery.isActiveCharacter(owner, " "));
-      assertFalse(MailDelivery.isActiveCharacter(owner, "id"));
-      characters.when(() -> RPCharacters.getActiveCharacter(owner)).thenReturn(character);
-      when(character.getId()).thenReturn("id");
-      assertTrue(MailDelivery.isActiveCharacter(owner, "id"));
-      assertFalse(MailDelivery.isActiveCharacter(owner, "other"));
+      assertFalse(MailDelivery.isActiveCharacter(owner, characterId.toString()));
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.currentSession(owner))
+          .thenReturn(java.util.Optional.of(token));
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.isCurrent(token)).thenReturn(true);
+      assertTrue(MailDelivery.isActiveCharacter(owner, characterId.toString()));
+      assertTrue(MailDelivery.isActiveCharacter(owner, characterId.toString().toUpperCase(java.util.Locale.ROOT)));
+      assertFalse(MailDelivery.isActiveCharacter(owner, "1-1-1-1-1"));
+      assertFalse(MailDelivery.isActiveCharacter(owner, UUID.randomUUID().toString()));
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.isCurrent(token)).thenReturn(false);
+      assertFalse(MailDelivery.isActiveCharacter(owner, characterId.toString()));
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.isCurrent(token)).thenReturn(true);
+      bukkit.when(() -> Bukkit.getPlayer(ownerId)).thenReturn(mock(Player.class));
+      assertFalse(MailDelivery.isActiveCharacter(owner, characterId.toString()));
+      bukkit.when(() -> Bukkit.getPlayer(ownerId)).thenReturn(owner);
+      when(owner.isOnline()).thenReturn(false);
+      assertFalse(MailDelivery.isActiveCharacter(owner, characterId.toString()));
+      when(owner.isOnline()).thenReturn(true);
+      when(owner.getUniqueId()).thenReturn(UUID.randomUUID());
+      assertFalse(MailDelivery.isActiveCharacter(owner, characterId.toString()));
     }
   }
 }

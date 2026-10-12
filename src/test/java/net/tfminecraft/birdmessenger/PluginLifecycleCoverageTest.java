@@ -77,6 +77,7 @@ class PluginLifecycleCoverageTest {
       assertEquals(List.of(), plugin.letterItemPaths());
       plugin.onDisable();
       try (var bukkit = mockStatic(Bukkit.class);
+          var characters = mockStatic(net.tfminecraft.tlibs.character.Characters.class);
           var features =
               mockConstruction(
                   LetterFeature.class,
@@ -98,7 +99,7 @@ class PluginLifecycleCoverageTest {
         verify(stores.constructed().getFirst()).load();
         verify(plugin.mail()).resume();
         verify(plugin.mail()).flushPendingForOnlinePlayers();
-        verify(manager, times(scenario == 0 ? 5 : 4)).registerEvents(any(), eq(plugin));
+        verify(manager, times(scenario == 0 ? 4 : 3)).registerEvents(any(), eq(plugin));
         assertTrue(plugin.reloadLettersConfig());
         assertEquals(List.of("letter", "sealed", "opened"), plugin.letterItemPaths());
         if (scenario == 1) {
@@ -113,6 +114,25 @@ class PluginLifecycleCoverageTest {
         verify(features.constructed().getFirst()).close();
         verify(stores.constructed().getFirst()).saveAll();
       }
+    }
+  }
+
+  @Test
+  void olderTLibsDisablesBeforeCreatingAnyResources() {
+    BirdMessenger plugin = mock(BirdMessenger.class, CALLS_REAL_METHODS);
+    Logger logger = mock(Logger.class);
+    doReturn(logger).when(plugin).getLogger();
+    PluginManager manager = mock(PluginManager.class);
+    try (var bukkit = mockStatic(Bukkit.class);
+         var characters = mockStatic(net.tfminecraft.tlibs.character.Characters.class)) {
+      bukkit.when(Bukkit::getPluginManager).thenReturn(manager);
+      characters.when(net.tfminecraft.tlibs.character.Characters::available)
+          .thenThrow(new NoClassDefFoundError("old TLibs"));
+      plugin.onEnable();
+      verify(manager).disablePlugin(plugin);
+      verify(logger).severe(contains("TLibs 2.3.0"));
+      verify(plugin, never()).saveDefaultConfig();
+      assertNull(plugin.sessions());
     }
   }
 

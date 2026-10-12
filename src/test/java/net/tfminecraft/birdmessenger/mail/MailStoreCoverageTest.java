@@ -10,11 +10,13 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.tfminecraft.birdmessenger.BirdMessenger;
+import net.tfminecraft.tlibs.character.CharacterRef;
 import org.bukkit.Bukkit;
 import org.bukkit.UnsafeValues;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -254,6 +256,10 @@ class MailStoreCoverageTest {
     store.addPending(null);
     store.addPending(
         new StoredMail(ID, SENDER, OWNER, null, "Alice", item(serializedItem("Ignored")), 1L));
+    store.addPending(null, new MailStore.PendingLetter(OWNER, SENDER, "Alice", null));
+    store.addPending(CHARACTER, null);
+    assertNull(store.pollPending(null));
+    assertNull(store.pollPending(new CharacterRef(OWNER, ID)));
     assertNull(store.removeInFlight(null));
     assertFalse(store.hasPending(null));
     assertFalse(store.hasPending(CHARACTER));
@@ -317,6 +323,165 @@ class MailStoreCoverageTest {
     restored.load();
     assertFalse(restored.hasPending(CHARACTER), "Consumed letters must not return after restart");
     assertEquals(2, letters.size(), "Previously returned letters remain available to delivery");
+  }
+
+  @Test
+  void pollingDrainsOneExactOwnerLetterAndPreservesOtherKeysAcrossRestarts() throws Exception {
+    new MailStore(plugin);
+    String uppercase = ID.toString().toUpperCase(Locale.ROOT);
+    UUID otherOwner = UUID.randomUUID();
+    String unrelated = UUID.randomUUID().toString();
+    YamlConfiguration yaml = new YamlConfiguration();
+    yaml.set("characters." + uppercase + ".owner", OWNER.toString());
+    yaml.set(
+        "characters." + uppercase + ".letters",
+        List.of(
+            Map.of("item", serializedItem("First"), "sender", SENDER.toString()),
+            Map.of("item", serializedItem("Second"), "addressee-display", "Lady Alice")));
+    for (String key : List.of(ID.toString(), unrelated, CHARACTER, "1-1-1-1-1")) {
+      yaml.set("characters." + key + ".owner", otherOwner.toString());
+      yaml.set("characters." + key + ".letters", List.of(Map.of("item", serializedItem(key))));
+    }
+    Path file = root.resolve("mail-data/pending_mail.yml");
+    yaml.save(file.toFile());
+    MailStore store = new MailStore(plugin);
+    store.load();
+    CharacterRef ref = new CharacterRef(OWNER, ID);
+
+    MailStore.PendingLetter first = store.pollPending(ref);
+    assertNotNull(first);
+    assertEquals(OWNER, first.ownerUuid);
+    assertEquals(SENDER, first.senderUuid);
+    assertEquals(serializedItem("First"), first.item.serialize());
+    YamlConfiguration partial = YamlConfiguration.loadConfiguration(file.toFile());
+    assertEquals(
+        java.util.Set.of(uppercase, ID.toString(), unrelated, CHARACTER, "1-1-1-1-1"),
+        partial.getConfigurationSection("characters").getKeys(false));
+    assertEquals(1, partial.getMapList("characters." + uppercase + ".letters").size());
+    assertEquals(otherOwner.toString(), partial.getString("characters." + ID + ".owner"));
+
+    MailStore restored = new MailStore(plugin);
+    restored.load();
+    MailStore.PendingLetter second = restored.pollPending(ref);
+    assertNotNull(second);
+    assertEquals(serializedItem("Second"), second.item.serialize());
+    assertEquals("Lady Alice", second.addresseeDisplayTab);
+    assertNull(restored.pollPending(ref));
+    YamlConfiguration drained = YamlConfiguration.loadConfiguration(file.toFile());
+    assertFalse(drained.contains("characters." + uppercase));
+    assertEquals(
+        java.util.Set.of(ID.toString(), unrelated, CHARACTER, "1-1-1-1-1"),
+        drained.getConfigurationSection("characters").getKeys(false));
+    restored.load();
+    assertNull(restored.pollPending(ref), "Consumed letters cannot return after reload");
+    MailStore.PendingLetter other = restored.pollPending(new CharacterRef(otherOwner, ID));
+    assertNotNull(other);
+    assertEquals(otherOwner, other.ownerUuid);
+    for (String key : List.of(unrelated, CHARACTER, "1-1-1-1-1")) {
+      assertEquals(serializedItem(key), restored.takePending(key).getFirst().item.serialize());
+    }
+  }
+
+  @Test
+  void unmatchedPollNeverRewritesMailOrAcceptsAPermissiveShortUuid() throws Exception {
+    MailStore store = new MailStore(plugin);
+    store.addPending(
+        "1-1-1-1-1", new MailStore.PendingLetter(OWNER, SENDER, "Alice", item(serializedItem("Keep"))));
+    Path file = root.resolve("mail-data/pending_mail.yml");
+    String original = Files.readString(file) + "# Preserve unmatched mail byte for byte\n";
+    Files.writeString(file, original);
+    store.load();
+
+    assertNull(store.pollPending(new CharacterRef(OWNER, ID)));
+    assertNull(
+        store.pollPending(
+            new CharacterRef(OWNER, UUID.fromString("00000001-0001-0001-0001-000000000001"))));
+    assertNull(store.pollPending(null));
+    assertEquals(original, Files.readString(file));
+    assertTrue(store.hasPending("1-1-1-1-1"));
+  }
+
+  @Test
+  void capturedRefundClonesItsItemAndRetainsDeliveryIdentityAfterReload() {
+    Map<String, Object> captured = serializedItem("Captured refund");
+    ItemStack original = item(captured);
+    MailStore.PendingLetter letter = new MailStore.PendingLetter(OWNER, SENDER, "Lady Alice", original);
+    MailStore store = new MailStore(plugin);
+    store.addPending(ID.toString(), letter);
+    verify(original).clone();
+    when(original.serialize()).thenReturn(serializedItem("Changed outside queue"));
+    store.saveAll();
+
+    MailStore restored = new MailStore(plugin);
+    restored.load();
+    MailStore.PendingLetter refund = restored.pollPending(new CharacterRef(OWNER, ID));
+    assertNotNull(refund);
+    assertNotSame(original, refund.item);
+    assertEquals(captured, refund.item.serialize());
+    assertEquals(OWNER, refund.ownerUuid);
+    assertEquals(SENDER, refund.senderUuid);
+    assertEquals("Lady Alice", refund.addresseeDisplayTab);
+    restored.load();
+    assertNull(restored.pollPending(new CharacterRef(OWNER, ID)));
+  }
+
+  @Test
+  void conflictingOwnersCannotBeMergedIntoOnePendingYamlGroup() throws Exception {
+    MailStore store = new MailStore(plugin);
+    store.addPending(
+        ID.toString(), new MailStore.PendingLetter(OWNER, SENDER, "Alice", item(serializedItem("Keep"))));
+    Path file = root.resolve("mail-data/pending_mail.yml");
+    String original = Files.readString(file);
+    UUID otherOwner = UUID.randomUUID();
+    ItemStack conflictingItem = item(serializedItem("Other owner"));
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            store.addPending(
+                ID.toString(),
+                new MailStore.PendingLetter(otherOwner, SENDER, "Other", conflictingItem)));
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            store.addPending(
+                new StoredMail(
+                    UUID.randomUUID(), SENDER, otherOwner, ID.toString(), "Other", conflictingItem, 1L)));
+    assertEquals(original, Files.readString(file));
+    List<MailStore.PendingLetter> letters = store.takePending(ID.toString());
+    assertEquals(1, letters.size());
+    assertEquals(OWNER, letters.getFirst().ownerUuid);
+    assertEquals(serializedItem("Keep"), letters.getFirst().item.serialize());
+  }
+
+  @Test
+  void unrecoveredPendingFileBlocksPollingAndCapturedRefundsBeforeMutation() throws Exception {
+    MailStore store = new MailStore(plugin);
+    store.addPending(
+        ID.toString(), new MailStore.PendingLetter(OWNER, SENDER, "Alice", item(serializedItem("Keep"))));
+    Path file = root.resolve("mail-data/pending_mail.yml");
+    String damaged = "characters: [unclosed\n";
+    Files.writeString(file, damaged);
+    CharacterRef ref = new CharacterRef(OWNER, ID);
+    try (MockedStatic<Files> files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+      files
+          .when(() -> Files.copy(eq(file), any(Path.class)))
+          .thenThrow(new IOException("Cannot back up"));
+      assertThrows(IllegalStateException.class, store::load);
+      assertThrows(IllegalStateException.class, () -> store.pollPending(ref));
+      assertThrows(
+          IllegalStateException.class,
+          () ->
+              store.addPending(
+                  ID.toString(),
+                  new MailStore.PendingLetter(OWNER, SENDER, "Alice", item(serializedItem("Blocked")))));
+      assertEquals(damaged, Files.readString(file));
+    }
+
+    store.load();
+    assertEquals(serializedItem("Keep"), store.pollPending(ref).item.serialize());
+    assertNull(store.pollPending(ref), "The blocked refund must not have entered the queue");
+    assertEquals(damaged, Files.readString(recoveryCopy("pending_mail.yml")));
   }
 
   @Test

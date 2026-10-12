@@ -12,7 +12,6 @@ import org.bukkit.inventory.EquipmentSlot;
 
 import net.tfminecraft.tlibs.TLibs;
 import net.tfminecraft.birdmessenger.BirdMessenger;
-import net.tfminecraft.birdmessenger.gui.LetterGui;
 
 public final class CoopListener implements Listener {
 
@@ -57,6 +56,6 @@ public final class CoopListener implements Listener {
 		if (player.isSneaking()) {
 			return;
 		}
-		player.openInventory(new LetterGui(plugin).getInventory());
+		plugin.openLetterGui(player);
 	}
 }

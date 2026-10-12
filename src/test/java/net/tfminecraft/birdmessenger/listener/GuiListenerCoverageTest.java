@@ -11,6 +11,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Optional;
+import net.tfminecraft.tlibs.character.CharacterRef;
+import net.tfminecraft.tlibs.character.CharacterSession;
+import net.tfminecraft.tlibs.character.Characters;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -19,6 +23,7 @@ import net.tfminecraft.birdmessenger.BirdMessenger;
 import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
 import net.tfminecraft.birdmessenger.gui.LetterGui;
 import net.tfminecraft.birdmessenger.mail.MailService;
+import net.tfminecraft.birdmessenger.mail.MailStore;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.session.SendSession;
 import net.tfminecraft.birdmessenger.session.SendSessionManager;
@@ -70,6 +75,9 @@ class GuiListenerCoverageTest {
   private GuiListener listener;
   private MockedStatic<Bukkit> bukkit;
   private MockedStatic<LetterItems> letterItems;
+  private MockedStatic<Characters> characters;
+  private CharacterSession token;
+  private SendSession initialSession;
 
   @BeforeEach
   void setup() {
@@ -87,6 +95,7 @@ class GuiListenerCoverageTest {
     when(plugin.mail()).thenReturn(mail);
     player = mock(Player.class);
     when(player.getUniqueId()).thenReturn(playerId);
+    when(player.isOnline()).thenReturn(true);
     when(player.getLocation()).thenReturn(mock(Location.class));
     inventory = mock(PlayerInventory.class);
     when(player.getInventory()).thenReturn(inventory);
@@ -132,6 +141,16 @@ class GuiListenerCoverageTest {
         .runTaskLater(eq(plugin), any(Runnable.class), anyLong());
     bukkit = mockStatic(Bukkit.class);
     bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
+    bukkit.when(() -> Bukkit.getPlayer(playerId)).thenReturn(player);
+    token = new CharacterSession(new CharacterRef(playerId, UUID.randomUUID()), 1);
+    characters = mockStatic(Characters.class);
+    characters.when(() -> Characters.currentSession(player)).thenAnswer(call -> Optional.ofNullable(token));
+    characters.when(() -> Characters.isCurrent(any())).thenAnswer(call -> call.getArgument(0).equals(token));
+    initialSession = sessions.getOrCreate(player);
+    initialSession.setLetterInventory(top);
+    LetterGui letterGui = mock(LetterGui.class);
+    when(letterGui.session()).thenReturn(initialSession);
+    when(top.getHolder()).thenReturn(letterGui);
     letterItems = mockStatic(LetterItems.class);
     letterItems
         .when(() -> LetterItems.isLetter(eq(config), any()))
@@ -142,6 +161,7 @@ class GuiListenerCoverageTest {
   @AfterEach
   void closeMocks() {
     letterItems.close();
+    characters.close();
     bukkit.close();
   }
 
@@ -315,7 +335,7 @@ class GuiListenerCoverageTest {
     listener.onClose(closeEvent());
     assertTrue(later.isEmpty());
     assertTrue(nextTick.isEmpty());
-    assertNull(sessions.get(playerId));
+    assertSame(initialSession, sessions.get(playerId));
     verifyNoInteractions(mail);
   }
 
@@ -555,78 +575,57 @@ class GuiListenerCoverageTest {
   }
 
   @Test
-  void closingACompletedLetterGuiReturnsTheOldLetterAndStartsAFreshSession() {
-    ItemStack previous = stack(true, 1);
-    SendSession old = sessions.getOrCreate(playerId);
-    old.setLetter(previous);
-    old.setSelected(target());
-    old.setConfirmed(true);
-    old.setPickerPage(3);
+  void closingALetterGuiTransfersOnlyItsLetterAndQueuesItsCapturedSession() {
     ItemStack placed = stack(true, 1);
     topItems[LetterGui.LETTER_SLOT] = placed;
-    try (var give = mockStatic(ItemGive.class)) {
-      listener.onClose(closeEvent());
-      give.verify(() -> ItemGive.giveOrDrop(player, previous));
-      give.verifyNoMoreInteractions();
-    }
+    listener.onClose(closeEvent());
     assertNull(topItems[LetterGui.LETTER_SLOT]);
-    SendSession fresh = sessions.get(playerId);
-    assertNotSame(old, fresh);
-    assertNotSame(placed, fresh.getLetter());
-    assertEquals(1, fresh.getLetter().getAmount());
-    assertNull(fresh.getSelected());
-    assertFalse(fresh.isConfirmed());
-    assertEquals(0, fresh.getPickerPage());
+    assertSame(initialSession, sessions.get(playerId));
+    assertNotSame(placed, initialSession.getLetter());
+    assertEquals(1, initialSession.getLetter().getAmount());
     assertEquals(1, nextTick.size());
     nextTick.getFirst().run();
-    verify(plugin).openPicker(player);
+    verify(plugin).openPicker(player, initialSession);
   }
 
   @Test
-  void closingAnEmptyLetterGuiDoesNotDisturbAnExistingSession() {
-    SendSession session = sessions.getOrCreate(playerId);
+  void closingAnEmptyLetterGuiFinishesOnlyItsOwnSessionAndReturnsPendingLetter() {
     ItemStack letter = stack(true, 1);
-    session.setLetter(letter);
-    listener.onClose(closeEvent());
-    assertSame(session, sessions.get(playerId));
-    assertSame(letter, session.getLetter());
+    initialSession.setLetter(letter);
+    try (var give = mockStatic(ItemGive.class)) {
+      listener.onClose(closeEvent());
+      listener.onClose(closeEvent());
+      give.verify(() -> ItemGive.giveOrDrop(player, letter));
+      give.verifyNoMoreInteractions();
+    }
+    assertNull(sessions.get(playerId));
+    assertNull(initialSession.getLetter());
     assertTrue(nextTick.isEmpty());
     verifyNoInteractions(mail);
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void closingWithAnUnexpectedItemReturnsItOnceAndPreservesThePendingLetter(boolean fullInventory) {
-    SendSession session = sessions.getOrCreate(playerId);
+  void closingWithAnUnexpectedItemReturnsBothOwnedItemsExactlyOnce(boolean fullInventory) {
     ItemStack letter = stack(true, 1);
-    session.setLetter(letter);
-    SelectedTarget selected = target();
-    session.setSelected(selected);
-    session.setConfirmed(true);
-    session.setPickerPage(3);
+    initialSession.setLetter(letter);
     ItemStack unexpected = stack(false, 4);
     topItems[LetterGui.LETTER_SLOT] = unexpected;
     World world = mock(World.class);
     when(player.getWorld()).thenReturn(world);
     when(inventory.addItem(unexpected))
         .thenReturn(new HashMap<>(fullInventory ? Map.of(0, unexpected) : Map.of()));
-
+    when(inventory.addItem(letter)).thenReturn(new HashMap<>());
     listener.onClose(closeEvent());
     listener.onClose(closeEvent());
-
     assertNull(topItems[LetterGui.LETTER_SLOT]);
     verify(inventory).addItem(unexpected);
-    if (fullInventory) {
-      verify(world).dropItemNaturally(player.getLocation(), unexpected);
-    } else {
-      verifyNoInteractions(world);
-    }
+    verify(inventory).addItem(letter);
+    if (fullInventory) verify(world).dropItemNaturally(player.getLocation(), unexpected);
+    else verifyNoInteractions(world);
     assertEquals(4, unexpected.getAmount());
-    assertSame(session, sessions.get(playerId));
-    assertSame(letter, session.getLetter());
-    assertSame(selected, session.getSelected());
-    assertTrue(session.isConfirmed());
-    assertEquals(3, session.getPickerPage());
+    assertNull(sessions.get(playerId));
+    assertNull(initialSession.getLetter());
     assertTrue(nextTick.isEmpty());
     verifyNoInteractions(mail);
   }
@@ -649,7 +648,8 @@ class GuiListenerCoverageTest {
     usePicker();
     listener.onClose(closeEvent());
     ItemStack letter = stack(true, 1);
-    sessions.getOrCreate(playerId).setLetter(letter);
+    sessions.getOrCreate(player).setLetter(letter);
+    usePicker();
     try (var give = mockStatic(ItemGive.class)) {
       listener.onClose(closeEvent());
       listener.onClose(closeEvent());
@@ -662,14 +662,19 @@ class GuiListenerCoverageTest {
   }
 
   @Test
-  void pickerClicksWithoutASessionCloseSafelyAndBottomClicksRemainCancelled() {
+  void stalePickerClicksAreIgnoredAndCurrentBottomClicksRemainCancelled() {
     CharacterPickerGui picker = usePicker();
+    sessions.remove(initialSession);
     InventoryClickEvent absent = pickerClick(4);
     listener.onClick(absent);
     assertTrue(absent.isCancelled());
-    verify(player).closeInventory();
-    clearInvocations(player);
-    sessions.getOrCreate(playerId);
+    verify(player, never()).closeInventory();
+    sessions.getOrCreate(player);
+    InventoryClickEvent stale = pickerClick(4);
+    listener.onClick(stale);
+    assertTrue(stale.isCancelled());
+    verify(picker, never()).targetAt(anyInt(), anyInt());
+    picker = usePicker();
     InventoryClickEvent below = pickerClick(54);
     listener.onClick(below);
     assertTrue(below.isCancelled());
@@ -680,7 +685,7 @@ class GuiListenerCoverageTest {
   @Test
   void pickerCancelClosesWithoutSending() {
     usePicker();
-    sessions.getOrCreate(playerId).setLetter(stack(true, 1));
+    sessions.getOrCreate(player).setLetter(stack(true, 1));
     listener.onClick(pickerClick(CharacterPickerGui.SLOT_CANCEL));
     verify(player).closeInventory();
     verifyNoInteractions(mail);
@@ -690,7 +695,7 @@ class GuiListenerCoverageTest {
   void pickerPaginationClampsBothEndsAndRendersTheResultingPage() {
     CharacterPickerGui picker = usePicker();
     when(picker.maxPage()).thenReturn(2);
-    SendSession session = sessions.getOrCreate(playerId);
+    SendSession session = sessions.getOrCreate(player);
     listener.onClick(pickerClick(CharacterPickerGui.SLOT_PREV));
     assertEquals(0, session.getPickerPage());
     verify(picker).render(0, null);
@@ -705,7 +710,7 @@ class GuiListenerCoverageTest {
   @Test
   void pickerSelectionIgnoresEmptySlotsAndUpdatesAValidRecipient() {
     CharacterPickerGui picker = usePicker();
-    SendSession session = sessions.getOrCreate(playerId);
+    SendSession session = sessions.getOrCreate(player);
     listener.onClick(pickerClick(-999));
     assertNull(session.getSelected());
     SelectedTarget target = target();
@@ -719,7 +724,7 @@ class GuiListenerCoverageTest {
   @Test
   void confirmationRequiresARecipientAndAPendingLetter() {
     usePicker();
-    SendSession session = sessions.getOrCreate(playerId);
+    SendSession session = sessions.getOrCreate(player);
     listener.onClick(pickerClick(CharacterPickerGui.SLOT_CONFIRM));
     verify(player).sendMessage("Select a recipient");
     verify(player, never()).closeInventory();
@@ -733,7 +738,7 @@ class GuiListenerCoverageTest {
   @Test
   void successfulConfirmationCannotReturnTheLetterDuringTheCloseEvent() {
     usePicker();
-    SendSession session = sessions.getOrCreate(playerId);
+    SendSession session = sessions.getOrCreate(player);
     ItemStack letter = stack(true, 1);
     SelectedTarget target = target();
     session.setLetter(letter);
@@ -745,12 +750,12 @@ class GuiListenerCoverageTest {
             })
         .when(player)
         .closeInventory();
-    when(mail.trySend(player, letter, target)).thenReturn(true);
+    when(mail.trySend(player, session.characterSession(), letter, target)).thenReturn(true);
     try (var give = mockStatic(ItemGive.class)) {
       listener.onClick(pickerClick(CharacterPickerGui.SLOT_CONFIRM));
       give.verifyNoInteractions();
     }
-    verify(mail).trySend(player, letter, target);
+    verify(mail).trySend(player, session.characterSession(), letter, target);
     assertTrue(session.isConfirmed());
     assertNull(sessions.get(playerId));
   }
@@ -758,7 +763,7 @@ class GuiListenerCoverageTest {
   @Test
   void refusedConfirmationLeavesNoDuplicateLetterInTheSession() {
     usePicker();
-    SendSession session = sessions.getOrCreate(playerId);
+    SendSession session = sessions.getOrCreate(player);
     ItemStack letter = stack(true, 1);
     SelectedTarget target = target();
     session.setLetter(letter);
@@ -771,20 +776,148 @@ class GuiListenerCoverageTest {
         .when(player)
         .closeInventory();
     try (var give = mockStatic(ItemGive.class)) {
-      when(mail.trySend(player, letter, target))
+      when(mail.trySend(player, session.characterSession(), letter, target))
           .thenAnswer(
               call -> {
                 ItemGive.giveOrDrop(player, letter);
                 return false;
               });
       listener.onClick(pickerClick(CharacterPickerGui.SLOT_CONFIRM));
-      assertFalse(session.isConfirmed());
+      assertTrue(session.isConfirmed(), "Mail owns delivery or refund after handoff");
       assertNull(session.getLetter());
       listener.onClose(closeEvent());
       give.verify(() -> ItemGive.giveOrDrop(player, letter));
       give.verifyNoMoreInteractions();
     }
     assertNull(sessions.get(playerId));
+  }
+
+  @Test
+  void confirmationDetachesBeforeReentrantMailAndCannotCloseOrClearAReplacementPicker() {
+    usePicker();
+    SendSession original = sessions.get(playerId);
+    ItemStack letter = stack(true, 1);
+    ItemStack replacementLetter = stack(true, 1);
+    SelectedTarget target = target();
+    original.setLetter(letter);
+    original.setSelected(target);
+    AtomicReference<SendSession> replacement = new AtomicReference<>();
+    try (var give = mockStatic(ItemGive.class)) {
+      when(mail.trySend(player, original.characterSession(), letter, target)).thenAnswer(call -> {
+        assertNull(sessions.get(playerId));
+        assertNull(original.getLetter());
+        assertTrue(original.isConfirmed());
+        SendSession next = sessions.getOrCreate(player);
+        next.setLetter(replacementLetter);
+        replacement.set(next);
+        CharacterPickerGui nextHolder = mock(CharacterPickerGui.class);
+        when(nextHolder.session()).thenReturn(next);
+        Inventory nextInventory = mock(Inventory.class);
+        when(nextInventory.getHolder()).thenReturn(nextHolder);
+        openTop.set(nextInventory);
+        listener.onClose(closeEvent());
+        ItemGive.giveOrDrop(player, letter);
+        return false;
+      });
+      listener.onClick(pickerClick(CharacterPickerGui.SLOT_CONFIRM));
+      give.verify(() -> ItemGive.giveOrDrop(player, letter));
+      give.verifyNoMoreInteractions();
+    }
+    assertSame(replacement.get(), sessions.get(playerId));
+    assertSame(replacementLetter, replacement.get().getLetter());
+    verify(player, never()).closeInventory();
+    verify(mail).trySend(player, original.characterSession(), letter, target);
+  }
+
+  @Test
+  void failedMailHandoffRetainsTheCapturedCharacterRefundWithoutReplacingANewerPicker() {
+    usePicker();
+    SendSession original = sessions.get(playerId);
+    ItemStack letter = stack(true, 1);
+    ItemStack replacementLetter = stack(true, 1);
+    SelectedTarget target = target();
+    original.setLetter(letter);
+    original.setSelected(target);
+    MailStore store = mock(MailStore.class);
+    when(mail.store()).thenReturn(store);
+    var logger = mock(java.util.logging.Logger.class);
+    when(plugin.getLogger()).thenReturn(logger);
+    RuntimeException failure = new IllegalStateException("Mail storage unavailable");
+    AtomicReference<SendSession> replacement = new AtomicReference<>();
+    when(mail.trySend(player, original.characterSession(), letter, target)).thenAnswer(call -> {
+      assertNull(sessions.get(playerId));
+      assertNull(original.getLetter());
+      token = new CharacterSession(new CharacterRef(playerId, UUID.randomUUID()), 2);
+      SendSession next = sessions.getOrCreate(player);
+      next.setLetter(replacementLetter);
+      replacement.set(next);
+      CharacterPickerGui nextHolder = mock(CharacterPickerGui.class);
+      when(nextHolder.session()).thenReturn(next);
+      Inventory nextInventory = mock(Inventory.class);
+      when(nextInventory.getHolder()).thenReturn(nextHolder);
+      openTop.set(nextInventory);
+      listener.onClose(closeEvent());
+      throw failure;
+    });
+    try (var give = mockStatic(ItemGive.class)) {
+      assertDoesNotThrow(() -> listener.onClick(pickerClick(CharacterPickerGui.SLOT_CONFIRM)));
+      assertSame(replacement.get(), sessions.get(playerId));
+      assertSame(replacementLetter, replacement.get().getLetter());
+      assertTrue(original.isConfirmed());
+      assertNull(original.getLetter());
+      verifyNoInteractions(store);
+      sessions.retryReturns();
+      sessions.retryReturns();
+      var pending = org.mockito.ArgumentCaptor.forClass(MailStore.PendingLetter.class);
+      verify(store).addPending(eq(original.characterSession().ref().characterId().toString()), pending.capture());
+      assertEquals(original.characterSession().ref().ownerId(), pending.getValue().ownerUuid);
+      assertSame(letter, pending.getValue().item);
+      assertNull(pending.getValue().senderUuid);
+      verifyNoMoreInteractions(store);
+      give.verifyNoInteractions();
+    }
+    assertSame(replacement.get(), sessions.get(playerId));
+    assertSame(replacementLetter, replacement.get().getLetter());
+    verify(player, never()).closeInventory();
+    verify(logger).log(eq(java.util.logging.Level.SEVERE), contains("Retained unsent letter"), same(failure));
+  }
+
+  @Test
+  void switchBackInvalidatesClicksDragsAndTheQueuedCloseEvenWithTheSameInventory() {
+    listener.onClick(click(stack(true, 1), InventoryAction.PLACE_ALL, ClickType.LEFT));
+    assertEquals(1, later.size());
+    CharacterSession original = token;
+    token = new CharacterSession(new CharacterRef(playerId, UUID.randomUUID()), 2);
+    token = new CharacterSession(original.ref(), 3);
+    InventoryClickEvent click = click(stack(true, 1), InventoryAction.PLACE_ONE, ClickType.RIGHT);
+    InventoryDragEvent drag = drag(stack(true, 1), Map.of(LetterGui.LETTER_SLOT, stack(true, 1)));
+    listener.onClick(click);
+    listener.onDrag(drag);
+    later.getFirst().run();
+    assertTrue(click.isCancelled());
+    assertTrue(drag.isCancelled());
+    assertEquals(1, later.size());
+    verify(player, never()).closeInventory();
+    verifyNoInteractions(mail);
+  }
+
+  @Test
+  void lateOldLetterCloseCannotClearTheReplacementSession() {
+    token = null;
+    sessions.end(player, initialSession.characterSession());
+    token = new CharacterSession(initialSession.characterSession().ref(), 2);
+    SendSession replacement = sessions.getOrCreate(player);
+    ItemStack letter = stack(true, 1);
+    replacement.setLetter(letter);
+    clearInvocations(player);
+    try (var give = mockStatic(ItemGive.class)) {
+      listener.onClose(closeEvent());
+      assertSame(replacement, sessions.get(playerId));
+      assertSame(letter, replacement.getLetter());
+      give.verifyNoInteractions();
+    }
+    assertTrue(nextTick.isEmpty());
+    verify(player, never()).closeInventory();
   }
 
   private InventoryCloseEvent closeEvent() {
@@ -796,6 +929,10 @@ class GuiListenerCoverageTest {
 
   private CharacterPickerGui usePicker() {
     CharacterPickerGui picker = mock(CharacterPickerGui.class);
+    SendSession session = sessions.getOrCreate(player);
+    session.setLetterInventory(null);
+    when(picker.session()).thenReturn(session);
+    when(picker.getInventory()).thenReturn(top);
     when(top.getHolder()).thenReturn(picker);
     when(top.getSize()).thenReturn(54);
     return picker;

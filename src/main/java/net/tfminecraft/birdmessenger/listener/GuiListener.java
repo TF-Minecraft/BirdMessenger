@@ -19,7 +19,6 @@ import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
 import net.tfminecraft.birdmessenger.gui.LetterGui;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.session.SendSession;
-import net.tfminecraft.birdmessenger.util.ItemGive;
 import net.tfminecraft.birdmessenger.util.LetterItems;
 
 public final class GuiListener implements Listener {
@@ -35,7 +34,11 @@ public final class GuiListener implements Listener {
 		if (!(event.getWhoClicked() instanceof Player player)) {
 			return;
 		}
-		if (event.getView().getTopInventory().getHolder() instanceof LetterGui) {
+		if (event.getView().getTopInventory().getHolder() instanceof LetterGui gui) {
+			if (!plugin.sessions().isCurrent(player, gui.session())) {
+				event.setCancelled(true);
+				return;
+			}
 			handleLetterClick(event, player);
 			return;
 		}
@@ -50,7 +53,11 @@ public final class GuiListener implements Listener {
 			return;
 		}
 		Inventory top = event.getView().getTopInventory();
-		if (top.getHolder() instanceof LetterGui) {
+		if (top.getHolder() instanceof LetterGui gui) {
+			if (!plugin.sessions().isCurrent(player, gui.session())) {
+				event.setCancelled(true);
+				return;
+			}
 			for (int rawSlot : event.getRawSlots()) {
 				if (rawSlot >= top.getSize()) {
 					continue;
@@ -83,32 +90,24 @@ public final class GuiListener implements Listener {
 		if (!(event.getPlayer() instanceof Player player)) {
 			return;
 		}
-		if (event.getInventory().getHolder() instanceof LetterGui) {
+		if (event.getInventory().getHolder() instanceof LetterGui gui) {
+			SendSession session = gui.session();
+			if (!plugin.sessions().isCurrent(player, session)) {
+				plugin.sessions().returnLetter(player, session, false);
+				return;
+			}
 			ItemStack placed = event.getInventory().getItem(LetterGui.LETTER_SLOT);
 			if (!LetterItems.isLetter(plugin.config(), placed)) {
-				if (placed != null && !placed.getType().isAir()) {
-					event.getInventory().setItem(LetterGui.LETTER_SLOT, null);
-					ItemGive.giveOrDrop(player, placed);
-				}
+				plugin.sessions().returnLetter(player, session, false);
 				return;
 			}
 			event.getInventory().setItem(LetterGui.LETTER_SLOT, null);
-			// A second letter must not overwrite one that is still waiting for a recipient.
-			plugin.sessions().returnLetter(player, false);
-			SendSession session = plugin.sessions().getOrCreate(player.getUniqueId());
 			session.setLetter(placed.clone());
-			session.setSelected(null);
-			session.setConfirmed(false);
-			session.setPickerPage(0);
-			Bukkit.getScheduler().runTask(plugin, () -> plugin.openPicker(player));
+			Bukkit.getScheduler().runTask(plugin, () -> plugin.openPicker(player, session));
 			return;
 		}
-		if (event.getInventory().getHolder() instanceof CharacterPickerGui) {
-			SendSession session = plugin.sessions().get(player.getUniqueId());
-			if (session == null || session.isConfirmed()) {
-				return;
-			}
-			plugin.sessions().returnLetter(player, true);
+		if (event.getInventory().getHolder() instanceof CharacterPickerGui picker) {
+			plugin.sessions().returnLetter(player, picker.session(), true);
 		}
 	}
 
@@ -143,7 +142,8 @@ public final class GuiListener implements Listener {
 				}
 				Bukkit.getScheduler().runTaskLater(plugin, () -> {
 					// The player may already have closed this GUI and moved on to another one.
-					if (player.getOpenInventory().getTopInventory() == top) {
+					if (plugin.sessions().isCurrent(player, ((LetterGui) top.getHolder()).session())
+							&& player.getOpenInventory().getTopInventory() == top) {
 						player.closeInventory();
 					}
 				}, 3L);
@@ -212,9 +212,8 @@ public final class GuiListener implements Listener {
 
 	private void handlePickerClick(InventoryClickEvent event, Player player, CharacterPickerGui picker) {
 		event.setCancelled(true);
-		SendSession session = plugin.sessions().get(player.getUniqueId());
-		if (session == null) {
-			player.closeInventory();
+		SendSession session = picker.session();
+		if (!plugin.sessions().isCurrent(player, session)) {
 			return;
 		}
 		int slot = event.getRawSlot();
@@ -247,13 +246,17 @@ public final class GuiListener implements Listener {
 				return;
 			}
 			session.setConfirmed(true);
-			player.closeInventory();
-			if (!plugin.mail().trySend(player, letter, selected)) {
-				session.setConfirmed(false);
-				session.setLetter(null);
-				return;
+			session.setLetter(null);
+			plugin.sessions().remove(session);
+			// Hand off ownership before any close callback can replace this operation.
+			try {
+				plugin.mail().trySend(player, session.characterSession(), letter, selected);
+			} catch (RuntimeException failure) {
+				plugin.sessions().retainReturn(session, letter, failure);
 			}
-			plugin.sessions().clear(player.getUniqueId());
+			if (player.getOpenInventory().getTopInventory() == picker.getInventory()) {
+				player.closeInventory();
+			}
 			return;
 		}
 		SelectedTarget clicked = picker.targetAt(session.getPickerPage(), slot);

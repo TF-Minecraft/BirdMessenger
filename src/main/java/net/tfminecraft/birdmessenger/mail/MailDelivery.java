@@ -7,10 +7,9 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
-import net.tfminecraft.rpcharacters.objects.RPCharacter;
-import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.BirdConfig;
 import net.tfminecraft.birdmessenger.util.ItemGive;
+import net.tfminecraft.tlibs.character.Characters;
 
 public final class MailDelivery {
 
@@ -21,11 +20,15 @@ public final class MailDelivery {
 	}
 
 	public static boolean isActiveCharacter(Player owner, String characterId) {
-		if (owner == null || characterId == null || characterId.isBlank()) {
+		if (owner == null || !owner.isOnline() || characterId == null || characterId.isBlank()
+				|| Bukkit.getPlayer(owner.getUniqueId()) != owner) {
 			return false;
 		}
-		RPCharacter active = RPCharacters.getActiveCharacter(owner);
-		return active != null && characterId.equals(active.getId());
+		return Characters.currentSession(owner)
+				.filter(session -> owner.getUniqueId().equals(session.ref().ownerId()))
+				.filter(session -> characterId.equalsIgnoreCase(session.ref().characterId().toString()))
+				.filter(Characters::isCurrent)
+				.isPresent();
 	}
 
 	public void deliver(Player owner, ItemStack letter, UUID senderUuid, String addresseeDisplayTab) {

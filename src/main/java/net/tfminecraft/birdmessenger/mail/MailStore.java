@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,6 +22,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
+import net.tfminecraft.tlibs.character.CharacterRef;
 
 public final class MailStore {
 
@@ -65,10 +67,37 @@ public final class MailStore {
 		return new ArrayList<>(letters);
 	}
 
+	public PendingLetter pollPending(CharacterRef ref) {
+		if (ref == null) {
+			return null;
+		}
+		String characterId = ref.characterId().toString();
+		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
+			if (!entry.getKey().equalsIgnoreCase(characterId)) {
+				continue;
+			}
+			List<PendingLetter> letters = entry.getValue();
+			for (int i = 0; i < letters.size(); i++) {
+				if (!ref.ownerId().equals(letters.get(i).ownerUuid)) {
+					continue;
+				}
+				requireRecovered(pendingFile);
+				PendingLetter letter = letters.remove(i);
+				if (letters.isEmpty()) {
+					pending.remove(entry.getKey(), letters);
+				}
+				savePending();
+				return letter;
+			}
+		}
+		return null;
+	}
+
 	public void putInFlight(StoredMail mail) {
 		if (mail == null) {
 			return;
 		}
+		requireRecovered(inFlightFile);
 		inFlight.put(mail.getId(), mail);
 		saveInFlight();
 	}
@@ -77,6 +106,7 @@ public final class MailStore {
 		if (mailId == null) {
 			return null;
 		}
+		requireRecovered(inFlightFile);
 		StoredMail removed = inFlight.remove(mailId);
 		saveInFlight();
 		return removed;
@@ -86,13 +116,34 @@ public final class MailStore {
 		if (mail == null || mail.getCharacterId() == null) {
 			return;
 		}
-		PendingLetter letter = new PendingLetter(
-						mail.getOwnerUuid(),
-						mail.getSenderUuid(),
-						mail.getAddresseeDisplayTab(),
-						mail.getItem().clone());
+		addPending(mail.getCharacterId(), new PendingLetter(
+				mail.getOwnerUuid(),
+				mail.getSenderUuid(),
+				mail.getAddresseeDisplayTab(),
+				mail.getItem()));
+	}
+
+	public void addPending(String characterId, PendingLetter letter) {
+		if (characterId == null || letter == null) {
+			return;
+		}
+		requireRecovered(pendingFile);
+		Objects.requireNonNull(letter.ownerUuid, "Pending letter owner is required");
+		PendingLetter snapshot = new PendingLetter(
+				letter.ownerUuid, letter.senderUuid, letter.addresseeDisplayTab, letter.item.clone());
 		// Publish only complete entries: this private map always contains nonempty lists.
-		pending.computeIfAbsent(mail.getCharacterId(), k -> new ArrayList<>()).add(letter);
+		pending.compute(characterId, (key, letters) -> {
+			if (letters == null) {
+				letters = new ArrayList<>();
+			}
+			for (PendingLetter existing : letters) {
+				if (!letter.ownerUuid.equals(existing.ownerUuid)) {
+					throw new IllegalStateException("Pending character group belongs to another owner");
+				}
+			}
+			letters.add(snapshot);
+			return letters;
+		});
 		savePending();
 	}
 
