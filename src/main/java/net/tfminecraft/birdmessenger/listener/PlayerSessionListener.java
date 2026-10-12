@@ -5,6 +5,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.EventPriority;
 import net.tfminecraft.tlibs.character.CharacterSessionStartEvent;
 import net.tfminecraft.tlibs.character.CharacterSessionEndEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
@@ -19,7 +20,14 @@ public final class PlayerSessionListener implements Listener {
 
 	@EventHandler(priority = EventPriority.LOWEST)
 	public void onEnd(CharacterSessionEndEvent event) {
-		plugin.sessions().end(event.getPlayer(), event.getSession());
+		var reason = event.getReason();
+		plugin.sessions().end(event.getPlayer(), event.getSession(),
+				reason == CharacterSessionEndEvent.Reason.QUIT || reason == CharacterSessionEndEvent.Reason.SHUTDOWN);
+	}
+
+	@EventHandler(priority = EventPriority.LOWEST)
+	public void onDeath(PlayerDeathEvent event) {
+		plugin.sessions().dying(event);
 	}
 
 	@EventHandler
@@ -30,6 +38,6 @@ public final class PlayerSessionListener implements Listener {
 
 	@EventHandler
 	public void onQuit(PlayerQuitEvent event) {
-		plugin.sessions().returnLetter(event.getPlayer(), false);
+		plugin.sessions().leave(event.getPlayer());
 	}
 }

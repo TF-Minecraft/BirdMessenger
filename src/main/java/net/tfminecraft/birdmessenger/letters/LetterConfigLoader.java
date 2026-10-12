@@ -29,6 +29,7 @@ public final class LetterConfigLoader {
         LetterConfig.openedMessage = config.getString("messages.letter-opened", LetterConfig.openedMessage);
         LetterConfig.creationFailedMessage = config.getString("messages.letter-creation-failed", LetterConfig.creationFailedMessage);
         LetterConfig.openFailedMessage = config.getString("messages.letter-open-failed", LetterConfig.openFailedMessage);
+        LetterConfig.needsCharacterMessage = config.getString("messages.letter-needs-character", LetterConfig.needsCharacterMessage);
         return true;
     }
 }

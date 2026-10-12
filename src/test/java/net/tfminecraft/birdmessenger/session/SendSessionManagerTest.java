@@ -3,9 +3,13 @@ package net.tfminecraft.birdmessenger.session;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import java.util.HashMap;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import net.kyori.adventure.text.Component;
 import net.tfminecraft.birdmessenger.BirdConfig;
 import net.tfminecraft.birdmessenger.BirdMessenger;
 import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
@@ -17,11 +21,17 @@ import net.tfminecraft.tlibs.character.CharacterRef;
 import net.tfminecraft.tlibs.character.CharacterSession;
 import net.tfminecraft.tlibs.character.Characters;
 import org.bukkit.Bukkit;
+import org.bukkit.GameRule;
+import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
@@ -79,7 +89,7 @@ class SendSessionManagerTest {
             session.setLetterInventory(f.top);
             when(f.top.getItem(LetterGui.LETTER_SLOT)).thenReturn(f.letter);
             f.current.set(null);
-            f.sessions.end(f.player, f.token);
+            f.sessions.end(f.player, f.token, false);
             var order = inOrder(f.top, f.player);
             order.verify(f.top).setItem(LetterGui.LETTER_SLOT, null);
             order.verify(f.player).closeInventory();
@@ -87,7 +97,7 @@ class SendSessionManagerTest {
             assertNull(f.sessions.get(f.id));
             f.current.set(new CharacterSession(f.token.ref(), 3));
             SendSession replacement = f.start();
-            f.sessions.end(f.player, f.token);
+            f.sessions.end(f.player, f.token, false);
             assertSame(replacement, f.sessions.get(f.id));
         }
     }
@@ -122,7 +132,9 @@ class SendSessionManagerTest {
             when(f.top.getHolder()).thenReturn(picker);
             session.setLetter(f.letter);
             f.sessions.close();
-            f.give.verify(() -> ItemGive.giveOrDrop(f.player, f.letter));
+            verify(f.inventory).addItem(f.letter);
+            f.give.verifyNoInteractions();
+            verifyNoInteractions(f.store);
             verify(f.player).closeInventory();
         }
         try (Fixture f = new Fixture()) {
@@ -173,7 +185,118 @@ class SendSessionManagerTest {
             doNothing().when(f.store).addPending(anyString(), any(MailStore.PendingLetter.class));
             f.sessions.retryReturns();
             f.sessions.retryReturns();
-            verify(f.store, times(3)).addPending(eq(f.token.ref().characterId().toString()), argThat(p -> p.item == f.letter));
+            verify(f.store, times(3)).addPending(eq(f.token.ref().characterId().toString()), argThat(p -> p.item == f.letter && p.returned));
+            verify(f.logger).log(eq(Level.SEVERE), contains("Holding unsent letter 0x"), any(IllegalStateException.class));
+            verify(f.logger, times(2)).log(eq(Level.SEVERE), contains("of character " + f.token.ref().characterId()), any(IllegalStateException.class));
+            verify(f.logger).log(eq(Level.SEVERE), contains("still refuses unsent letter 0x"), any(IllegalStateException.class));
+        }
+    }
+
+    @Test void failedSendWhileStillPlayingHandsTheLetterBackAtOnceAndNamesIt() {
+        try (Fixture f = new Fixture()) {
+            SendSession session = f.start();
+            ItemMeta meta = mock(ItemMeta.class);
+            when(meta.hasDisplayName()).thenReturn(true);
+            when(meta.displayName()).thenReturn(Component.text("Peace Treaty"));
+            when(f.letter.getItemMeta()).thenReturn(meta);
+            when(f.letter.getAmount()).thenReturn(1);
+            IllegalStateException failure = new IllegalStateException("Mail storage unavailable");
+            f.sessions.retainReturn(session, f.letter, failure);
+            f.give.verify(() -> ItemGive.giveOrDrop(f.player, f.letter));
+            verify(f.logger).log(eq(Level.WARNING), contains("\"Peace Treaty\""), same(failure));
+            f.sessions.retryReturns();
+            verifyNoInteractions(f.store);
+        }
+        try (Fixture f = new Fixture()) {
+            SendSession session = f.start();
+            IllegalStateException failure = new IllegalStateException("Mail storage unavailable");
+            IllegalStateException again = new IllegalStateException("Inventory unavailable");
+            f.give.when(() -> ItemGive.giveOrDrop(f.player, f.letter)).thenThrow(again);
+            doThrow(failure).when(f.store).addPending(anyString(), any(MailStore.PendingLetter.class));
+            f.sessions.retainReturn(session, f.letter, failure);
+            assertArrayEquals(new Throwable[] {again}, failure.getSuppressed());
+            verify(f.logger).log(eq(Level.SEVERE), contains("Holding unsent letter"), same(failure));
+        }
+    }
+
+    @Test void deathThatEmptiesTheInventoryDropsReturnedLettersAtTheFeet() {
+        // Permadeath ends the session during the death event; an ordinary death closes the picker.
+        for (boolean permadeath : new boolean[] {true, false}) {
+            try (Fixture f = new Fixture()) {
+                SendSession session = f.start();
+                session.setLetter(f.letter);
+                f.dies(false);
+                if (permadeath) {
+                    f.current.set(null);
+                    f.sessions.end(f.player, f.token, false);
+                } else {
+                    f.sessions.returnLetter(f.player, session, true);
+                }
+                verify(f.world).dropItemNaturally(f.location, f.letter);
+                f.give.verifyNoInteractions();
+                verify(f.inventory, never()).addItem(any());
+                verifyNoInteractions(f.store);
+            }
+        }
+    }
+
+    @Test void deathThatKeepsTheInventoryReturnsLettersToIt() {
+        try (Fixture f = new Fixture()) {
+            SendSession session = f.start();
+            session.setLetter(f.letter);
+            f.dies(true);
+            f.sessions.returnLetter(f.player, session, true);
+            f.give.verify(() -> ItemGive.giveOrDrop(f.player, f.letter));
+            verify(f.world, never()).dropItemNaturally(any(), any());
+        }
+    }
+
+    @Test void deathWithoutARecordedEventFollowsTheKeepInventoryRule() {
+        for (Boolean rule : new Boolean[] {true, false, null}) {
+            try (Fixture f = new Fixture()) {
+                SendSession session = f.start();
+                session.setLetter(f.letter);
+                when(f.player.isDead()).thenReturn(true);
+                when(f.world.getGameRuleValue(GameRule.KEEP_INVENTORY)).thenReturn(rule);
+                f.sessions.returnLetter(f.player, session, false);
+                if (Boolean.TRUE.equals(rule)) {
+                    f.give.verify(() -> ItemGive.giveOrDrop(f.player, f.letter));
+                } else {
+                    verify(f.world).dropItemNaturally(f.location, f.letter);
+                }
+            }
+        }
+    }
+
+    @Test void leavingQueuesWhatTheInventoryCannotHoldForTheOutgoingCharacter() {
+        try (Fixture f = new Fixture()) {
+            SendSession session = f.start();
+            session.setLetter(f.letter);
+            HashMap<Integer, ItemStack> full = new HashMap<>();
+            full.put(0, f.letter);
+            when(f.inventory.addItem(f.letter)).thenReturn(full);
+            f.sessions.leave(f.player);
+            verify(f.store).addPending(eq(f.token.ref().characterId().toString()), argThat(p -> p.item == f.letter && p.returned && p.ownerUuid.equals(f.id)));
+            verify(f.world, never()).dropItemNaturally(any(), any());
+            f.give.verifyNoInteractions();
+            assertNull(f.sessions.get(f.id));
+        }
+        try (Fixture f = new Fixture()) {
+            SendSession session = f.start();
+            session.setLetter(f.letter);
+            f.dies(false);
+            f.sessions.leave(f.player);
+            verify(f.store).addPending(eq(f.token.ref().characterId().toString()), argThat(p -> p.item == f.letter && p.returned));
+            verify(f.inventory, never()).addItem(any());
+            verify(f.world, never()).dropItemNaturally(any(), any());
+        }
+        try (Fixture f = new Fixture()) {
+            SendSession session = f.start();
+            session.setLetter(f.letter);
+            f.current.set(null);
+            f.sessions.end(f.player, f.token, true);
+            verify(f.inventory).addItem(f.letter);
+            verifyNoInteractions(f.store);
         }
     }
 
@@ -181,9 +304,9 @@ class SendSessionManagerTest {
         try (Fixture f = new Fixture()) {
             SendSession session = f.start();
             session.setLetter(f.letter);
-            f.give.when(() -> ItemGive.giveOrDrop(f.player, f.letter)).thenAnswer(call -> {
+            when(f.inventory.addItem(f.letter)).thenAnswer(call -> {
                 assertNull(f.start());
-                return null;
+                return new HashMap<Integer, ItemStack>();
             });
             f.sessions.close();
             assertNull(f.sessions.get(f.id));
@@ -231,10 +354,18 @@ class SendSessionManagerTest {
         final MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
         final MockedStatic<Characters> characters = mockStatic(Characters.class);
         final MockedStatic<ItemGive> give = mockStatic(ItemGive.class);
+        final Logger logger = mock(Logger.class);
+        final PlayerInventory inventory = mock(PlayerInventory.class);
+        final World world = mock(World.class);
+        final Location location = new Location(world, 1, 64, 2);
         final SendSessionManager sessions;
         Fixture() {
             when(plugin.config()).thenReturn(config);
-            when(plugin.getLogger()).thenReturn(mock(java.util.logging.Logger.class));
+            when(plugin.getLogger()).thenReturn(logger);
+            when(player.getInventory()).thenReturn(inventory);
+            when(inventory.addItem(any())).thenReturn(new HashMap<>());
+            when(player.getWorld()).thenReturn(world);
+            when(player.getLocation()).thenReturn(location);
             when(plugin.mail()).thenReturn(mail);
             when(mail.store()).thenReturn(store);
             when(config.msgLetterReturned()).thenReturn("Returned");
@@ -251,6 +382,13 @@ class SendSessionManagerTest {
             sessions = new SendSessionManager(plugin);
         }
         SendSession start() { return sessions.getOrCreate(player); }
+        void dies(boolean keepInventory) {
+            PlayerDeathEvent death = mock(PlayerDeathEvent.class);
+            when(death.getEntity()).thenReturn(player);
+            when(death.getKeepInventory()).thenReturn(keepInventory);
+            sessions.dying(death);
+            when(player.isDead()).thenReturn(true);
+        }
         @Override public void close() { give.close(); characters.close(); bukkit.close(); }
     }
 }

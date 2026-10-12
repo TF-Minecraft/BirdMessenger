@@ -36,6 +36,7 @@ import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -662,6 +663,51 @@ class GuiListenerCoverageTest {
   }
 
   @Test
+  void pickerClosedByDeathDropsTheLetterBecausePaperEmptiesTheInventoryNext() {
+    ItemStack letter = stack(true, 1);
+    sessions.getOrCreate(player).setLetter(letter);
+    usePicker();
+    World world = mock(World.class);
+    Location feet = mock(Location.class);
+    when(player.getWorld()).thenReturn(world);
+    when(player.getLocation()).thenReturn(feet);
+    PlayerDeathEvent death = mock(PlayerDeathEvent.class);
+    when(death.getEntity()).thenReturn(player);
+    sessions.dying(death);
+    when(player.isDead()).thenReturn(true);
+    try (var give = mockStatic(ItemGive.class)) {
+      listener.onClose(closeEvent());
+      give.verifyNoInteractions();
+    }
+    verify(world).dropItemNaturally(feet, letter);
+    verify(inventory, never()).addItem(any(ItemStack.class));
+    assertNull(sessions.get(playerId));
+  }
+
+  @Test
+  void failedHandoffWhileStillPlayingHandsTheLetterBackAtOnce() {
+    usePicker();
+    SendSession session = sessions.get(playerId);
+    ItemStack letter = stack(true, 1);
+    SelectedTarget target = target();
+    session.setLetter(letter);
+    session.setSelected(target);
+    MailStore store = mock(MailStore.class);
+    when(mail.store()).thenReturn(store);
+    var logger = mock(java.util.logging.Logger.class);
+    when(plugin.getLogger()).thenReturn(logger);
+    RuntimeException failure = new IllegalStateException("Mail storage unavailable");
+    when(mail.trySend(player, session.characterSession(), letter, target)).thenThrow(failure);
+    try (var give = mockStatic(ItemGive.class)) {
+      listener.onClick(pickerClick(CharacterPickerGui.SLOT_CONFIRM));
+      give.verify(() -> ItemGive.giveOrDrop(player, letter));
+      sessions.retryReturns();
+    }
+    verifyNoInteractions(store);
+    verify(logger).log(eq(java.util.logging.Level.WARNING), contains("back to"), same(failure));
+  }
+
+  @Test
   void stalePickerClicksAreIgnoredAndCurrentBottomClicksRemainCancelled() {
     CharacterPickerGui picker = usePicker();
     sessions.remove(initialSession);
@@ -879,7 +925,7 @@ class GuiListenerCoverageTest {
     assertSame(replacement.get(), sessions.get(playerId));
     assertSame(replacementLetter, replacement.get().getLetter());
     verify(player, never()).closeInventory();
-    verify(logger).log(eq(java.util.logging.Level.SEVERE), contains("Retained unsent letter"), same(failure));
+    verify(logger).log(eq(java.util.logging.Level.SEVERE), contains("Holding unsent letter"), same(failure));
   }
 
   @Test
@@ -904,7 +950,7 @@ class GuiListenerCoverageTest {
   @Test
   void lateOldLetterCloseCannotClearTheReplacementSession() {
     token = null;
-    sessions.end(player, initialSession.characterSession());
+    sessions.end(player, initialSession.characterSession(), false);
     token = new CharacterSession(initialSession.characterSession().ref(), 2);
     SendSession replacement = sessions.getOrCreate(player);
     ItemStack letter = stack(true, 1);

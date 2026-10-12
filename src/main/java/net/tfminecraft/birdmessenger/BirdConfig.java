@@ -112,6 +112,10 @@ public final class BirdConfig {
 		return message("letter-returned", "&eYour letter has been returned to you.");
 	}
 
+	public String msgUnsentReturned() {
+		return message("unsent-returned", "&bA bird lands at your feet and returns your unsent letter.");
+	}
+
 	public String msgLetterCancelled() {
 		return message("letter-cancelled", "&cLetter cancelled.");
 	}

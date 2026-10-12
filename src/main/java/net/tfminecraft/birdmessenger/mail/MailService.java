@@ -12,6 +12,7 @@ import org.bukkit.inventory.ItemStack;
 import net.tfminecraft.birdmessenger.BirdMessenger;
 import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
+import net.tfminecraft.birdmessenger.session.SendSession;
 import net.tfminecraft.birdmessenger.util.ItemGive;
 import net.tfminecraft.tlibs.character.CharacterSession;
 import net.tfminecraft.tlibs.character.Characters;
@@ -43,7 +44,7 @@ public final class MailService {
 		if (origin == null || letter == null || target == null) {
 			return false;
 		}
-		if (!isCurrentConnection(sender, origin)) {
+		if (!SendSession.isCurrent(sender, origin)) {
 			refundLetter(sender, origin, letter);
 			return false;
 		}
@@ -76,7 +77,7 @@ public final class MailService {
 				target.getDisplayTab(),
 				letter.clone(),
 				deliveryTime);
-		if (!isCurrentConnection(sender, origin)) {
+		if (!SendSession.isCurrent(sender, origin)) {
 			refundLetter(sender, origin, letter);
 			return false;
 		}
@@ -102,19 +103,12 @@ public final class MailService {
 	}
 
 	private void refundLetter(Player sender, CharacterSession origin, ItemStack letter) {
-		if (isCurrentConnection(sender, origin)) {
+		if (SendSession.isCurrent(sender, origin)) {
 			ItemGive.giveOrDrop(sender, letter);
 			return;
 		}
 		store.addPending(origin.ref().characterId().toString(),
-				new MailStore.PendingLetter(origin.ref().ownerId(), null, "", letter));
-	}
-
-	private static boolean isCurrentConnection(Player player, CharacterSession session) {
-		return player != null && session != null && player.isOnline()
-				&& player.getUniqueId().equals(session.ref().ownerId())
-				&& Bukkit.getPlayer(session.ref().ownerId()) == player
-				&& Characters.isCurrent(session);
+				MailStore.PendingLetter.returned(origin.ref().ownerId(), letter));
 	}
 
 	public void resume() {
@@ -136,13 +130,16 @@ public final class MailService {
 	}
 
 	public void tryDeliverPending(Player owner, CharacterSession session) {
-		while (isCurrentConnection(owner, session)) {
-			MailStore.PendingLetter pending = store.pollPending(session.ref());
-			if (pending == null) {
-				return;
-			}
-			delivery.deliver(owner, pending.item, pending.senderUuid, pending.addresseeDisplayTab);
+		if (!SendSession.isCurrent(owner, session)) {
+			return;
 		}
+		store.drainPending(session.ref(), () -> SendSession.isCurrent(owner, session), pending -> {
+			if (pending.returned) {
+				delivery.returnUnsent(owner, pending.item);
+			} else {
+				delivery.deliver(owner, pending.item, pending.senderUuid, pending.addresseeDisplayTab);
+			}
+		});
 	}
 
 	private void schedule(StoredMail mail) {

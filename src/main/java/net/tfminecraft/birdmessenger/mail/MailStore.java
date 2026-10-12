@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,6 +12,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 
 import org.bukkit.configuration.ConfigurationSection;
@@ -47,30 +48,41 @@ public final class MailStore {
 		return inFlight;
 	}
 
-	public boolean hasPending(String characterId) {
-		if (characterId == null) {
-			return false;
-		}
-		List<PendingLetter> letters = pending.get(characterId);
-		return letters != null && !letters.isEmpty();
-	}
-
-	public List<PendingLetter> takePending(String characterId) {
-		if (characterId == null) {
-			return Collections.emptyList();
-		}
-		List<PendingLetter> letters = pending.remove(characterId);
-		savePending();
-		if (letters == null || letters.isEmpty()) {
-			return Collections.emptyList();
-		}
-		return new ArrayList<>(letters);
-	}
-
-	public PendingLetter pollPending(CharacterRef ref) {
+	/**
+	 * Hands this character's pending letters to {@code deliver} one at a time while {@code current}
+	 * holds, then saves once. Each letter leaves the queue only just before it is handed over, and
+	 * goes back to the head of its queue if the hand-over throws.
+	 */
+	public void drainPending(CharacterRef ref, BooleanSupplier current, Consumer<PendingLetter> deliver) {
 		if (ref == null) {
-			return null;
+			return;
 		}
+		boolean taken = false;
+		try {
+			while (current.getAsBoolean()) {
+				Taken next = removePending(ref);
+				if (next == null) {
+					return;
+				}
+				taken = true;
+				try {
+					deliver.accept(next.letter());
+				} catch (RuntimeException failure) {
+					pending.computeIfAbsent(next.key(), ignored -> new ArrayList<>()).addFirst(next.letter());
+					throw failure;
+				}
+			}
+		} finally {
+			if (taken) {
+				savePending();
+			}
+		}
+	}
+
+	private record Taken(String key, PendingLetter letter) {
+	}
+
+	private Taken removePending(CharacterRef ref) {
 		String characterId = ref.characterId().toString();
 		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
 			if (!entry.getKey().equalsIgnoreCase(characterId)) {
@@ -86,8 +98,7 @@ public final class MailStore {
 				if (letters.isEmpty()) {
 					pending.remove(entry.getKey(), letters);
 				}
-				savePending();
-				return letter;
+				return new Taken(entry.getKey(), letter);
 			}
 		}
 		return null;
@@ -129,8 +140,8 @@ public final class MailStore {
 		}
 		requireRecovered(pendingFile);
 		Objects.requireNonNull(letter.ownerUuid, "Pending letter owner is required");
-		PendingLetter snapshot = new PendingLetter(
-				letter.ownerUuid, letter.senderUuid, letter.addresseeDisplayTab, letter.item.clone());
+		PendingLetter snapshot = new PendingLetter(letter.ownerUuid, letter.senderUuid,
+				letter.addresseeDisplayTab, letter.item.clone(), letter.returned);
 		// Publish only complete entries: this private map always contains nonempty lists.
 		pending.compute(characterId, (key, letters) -> {
 			if (letters == null) {
@@ -247,6 +258,9 @@ public final class MailStore {
 				}
 				if (letter.addresseeDisplayTab != null && !letter.addresseeDisplayTab.isBlank()) {
 					map.put("addressee-display", letter.addresseeDisplayTab);
+				}
+				if (letter.returned) {
+					map.put("returned", true);
 				}
 				map.put("item", letter.item.serialize());
 				letterMaps.add(map);
@@ -371,7 +385,7 @@ public final class MailStore {
 				? String.valueOf(map.get("addressee-display"))
 				: "";
 		ItemStack item = deserializeItem(map.get("item"));
-		return new PendingLetter(ownerUuid, senderUuid, display, item);
+		return new PendingLetter(ownerUuid, senderUuid, display, item, Boolean.TRUE.equals(map.get("returned")));
 	}
 
 	@SuppressWarnings("unchecked")
@@ -410,12 +424,24 @@ public final class MailStore {
 		public final UUID senderUuid;
 		public final String addresseeDisplayTab;
 		public final ItemStack item;
+		/** An unsent letter on its way back to the character that wrote it. */
+		public final boolean returned;
 
 		public PendingLetter(UUID ownerUuid, UUID senderUuid, String addresseeDisplayTab, ItemStack item) {
+			this(ownerUuid, senderUuid, addresseeDisplayTab, item, false);
+		}
+
+		private PendingLetter(UUID ownerUuid, UUID senderUuid, String addresseeDisplayTab, ItemStack item,
+				boolean returned) {
 			this.ownerUuid = ownerUuid;
 			this.senderUuid = senderUuid;
 			this.addresseeDisplayTab = addresseeDisplayTab != null ? addresseeDisplayTab : "";
 			this.item = item;
+			this.returned = returned;
+		}
+
+		public static PendingLetter returned(UUID ownerUuid, ItemStack item) {
+			return new PendingLetter(ownerUuid, null, "", item, true);
 		}
 	}
 }

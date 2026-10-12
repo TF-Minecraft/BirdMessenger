@@ -11,6 +11,7 @@ public final class LetterConfig {
     public static String openedMessage = "&7The seal breaks as you open the letter...";
     public static String creationFailedMessage = "&cFailed to create letter. Please make a ticket.";
     public static String openFailedMessage = "&cFailed to open letter. Please make a ticket.";
+    public static String needsCharacterMessage = "&cChoose a character before writing letters. Your changes were not saved.";
 
     private LetterConfig() {}
 }

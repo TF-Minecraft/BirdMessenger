@@ -43,10 +43,14 @@ public class LetterListener implements Listener {
         ItemStack original = handItem.clone();
         // ItemsAdder rebuilds BookMeta at MONITOR, losing custom item identity.
         // Own the save for both edits and signatures so that handler and vanilla
-        // cannot turn the letter into an ordinary book.
+        // cannot turn the letter into an ordinary book. That also means an edit
+        // made without a character cannot be kept, so say why it was dropped.
         event.setCancelled(true);
         CharacterSession session = Characters.currentSession(player).orElse(null);
-        if (session == null && Characters.available()) return;
+        if (session == null && Characters.available()) {
+            sendMessage(player, LetterConfig.needsCharacterMessage);
+            return;
+        }
         if (!event.isSigning()) {
             ItemStack restored = items.createEditedLetter(event.getNewBookMeta(), original);
             if (restored == null) {
