@@ -50,7 +50,8 @@ public final class MailStore {
 
 	/**
 	 * Hands this character's pending letters to {@code deliver} one at a time while {@code current}
-	 * holds, then saves once. Each letter leaves the queue only just before it is handed over.
+	 * holds, then saves once. Each letter leaves the queue only just before it is handed over, and
+	 * goes back to the head of its queue if the hand-over throws.
 	 */
 	public void drainPending(CharacterRef ref, BooleanSupplier current, Consumer<PendingLetter> deliver) {
 		if (ref == null) {
@@ -59,12 +60,17 @@ public final class MailStore {
 		boolean taken = false;
 		try {
 			while (current.getAsBoolean()) {
-				PendingLetter letter = removePending(ref);
-				if (letter == null) {
+				Taken next = removePending(ref);
+				if (next == null) {
 					return;
 				}
 				taken = true;
-				deliver.accept(letter);
+				try {
+					deliver.accept(next.letter());
+				} catch (RuntimeException failure) {
+					pending.computeIfAbsent(next.key(), ignored -> new ArrayList<>()).addFirst(next.letter());
+					throw failure;
+				}
 			}
 		} finally {
 			if (taken) {
@@ -73,7 +79,10 @@ public final class MailStore {
 		}
 	}
 
-	private PendingLetter removePending(CharacterRef ref) {
+	private record Taken(String key, PendingLetter letter) {
+	}
+
+	private Taken removePending(CharacterRef ref) {
 		String characterId = ref.characterId().toString();
 		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
 			if (!entry.getKey().equalsIgnoreCase(characterId)) {
@@ -89,7 +98,7 @@ public final class MailStore {
 				if (letters.isEmpty()) {
 					pending.remove(entry.getKey(), letters);
 				}
-				return letter;
+				return new Taken(entry.getKey(), letter);
 			}
 		}
 		return null;

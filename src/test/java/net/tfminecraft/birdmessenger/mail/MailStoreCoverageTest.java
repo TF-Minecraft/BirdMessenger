@@ -348,15 +348,16 @@ class MailStoreCoverageTest {
   }
 
   @Test
-  void failedHandOverStillSavesTheLettersAlreadyTakenAndKeepsTheRest() {
+  void failedHandOverPutsTheLetterBackAtTheHeadOfItsQueue() {
     MailStore store = new MailStore(plugin);
     store.addPending(CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "A", item(serializedItem("A"))));
     store.addPending(CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "B", item(serializedItem("B"))));
     IllegalStateException failure = new IllegalStateException("Inventory unavailable");
     assertSame(failure, assertThrows(IllegalStateException.class,
         () -> store.drainPending(REF, () -> true, letter -> { throw failure; })));
-    assertEquals(1, savedLetters());
-    assertEquals("B", pending(store, CHARACTER).getFirst().addresseeDisplayTab);
+    assertEquals(2, savedLetters());
+    assertEquals("A", pending(store, CHARACTER).get(0).addresseeDisplayTab);
+    assertEquals("B", pending(store, CHARACTER).get(1).addresseeDisplayTab);
   }
 
   private int savedLetters() {
