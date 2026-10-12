@@ -33,11 +33,15 @@ public final class CharacterPickerGui implements InventoryHolder {
 	private final BirdMessenger plugin;
 	private List<SelectedTarget> targets;
 	private final Inventory inventory;
+	private final SendSession session;
+
+	public SendSession session() { return session; }
 
 	// Keep the existing legacy text representation, formatting, and exact-string comparisons.
 	@SuppressWarnings("deprecation")
-	public CharacterPickerGui(BirdMessenger plugin, List<SelectedTarget> targets) {
+	public CharacterPickerGui(BirdMessenger plugin, SendSession session, List<SelectedTarget> targets) {
 		this.plugin = plugin;
+		this.session = session;
 		this.targets = targets;
 		this.inventory = Bukkit.createInventory(this, 54, plugin.config().pickerTitle());
 		render(0, null);

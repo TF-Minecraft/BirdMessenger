@@ -11,7 +11,8 @@ import net.tfminecraft.birdmessenger.listener.CoopListener;
 import net.tfminecraft.birdmessenger.listener.CoopFurnitureListener;
 import net.tfminecraft.birdmessenger.listener.GuiListener;
 import net.tfminecraft.birdmessenger.listener.PlayerSessionListener;
-import net.tfminecraft.birdmessenger.listener.RpCharactersHook;
+import net.tfminecraft.birdmessenger.gui.LetterGui;
+import net.tfminecraft.tlibs.character.Characters;
 import net.tfminecraft.birdmessenger.mail.MailService;
 import net.tfminecraft.birdmessenger.mail.MailStore;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
@@ -31,6 +32,14 @@ public final class BirdMessenger extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
+		try {
+			// Probe API linkage; registration can arrive later and is checked per action.
+			Characters.available();
+		} catch (LinkageError error) {
+			getLogger().severe("BirdMessenger requires TLibs 2.3.0 or newer; disabling.");
+			Bukkit.getPluginManager().disablePlugin(this);
+			return;
+		}
 		saveDefaultConfig();
 		config = new BirdConfig(this);
 		letters = new LetterFeature(this);
@@ -45,9 +54,6 @@ public final class BirdMessenger extends JavaPlugin {
 		}
 		Bukkit.getPluginManager().registerEvents(new GuiListener(this), this);
 		Bukkit.getPluginManager().registerEvents(new PlayerSessionListener(this), this);
-		RpCharactersHook rpCharacters = new RpCharactersHook(this);
-		Bukkit.getPluginManager().registerEvents(rpCharacters, this);
-		rpCharacters.registerIfEnabled();
 		mail.resume();
 		mail.flushPendingForOnlinePlayers();
 		BirdMessengerCommand command = new BirdMessengerCommand(this);
@@ -77,6 +83,9 @@ public final class BirdMessenger extends JavaPlugin {
 		if (letters != null) {
 			letters.close();
 		}
+		if (sessions != null) {
+			sessions.close();
+		}
 		if (mail != null) {
 			mail.store().saveAll();
 		}
@@ -104,35 +113,48 @@ public final class BirdMessenger extends JavaPlugin {
 		return mail;
 	}
 
-	public void openPicker(Player player) {
-		if (player == null || !player.isOnline()) {
+	public void openLetterGui(Player player) {
+		var token = Characters.currentSession(player);
+		if (token.isEmpty()) {
+			player.sendMessage(config.msgRpcMissing());
 			return;
 		}
-		SendSession session = sessions.get(player.getUniqueId());
-		if (session == null || session.getLetter() == null || session.isConfirmed()) {
+		sessions.returnLetter(player, false);
+		if (!Characters.isCurrent(token.get()) || sessions.get(player.getUniqueId()) != null) return;
+		SendSession session = sessions.getOrCreate(player);
+		if (session == null) {
+			player.sendMessage(config.msgRpcMissing());
+			return;
+		}
+		player.openInventory(new LetterGui(this, session).getInventory());
+	}
+
+	public void openPicker(Player player, SendSession session) {
+		if (!sessions.isCurrent(player, session) || session.getLetter() == null || session.isConfirmed()) {
 			return;
 		}
 		if (player.getOpenInventory().getTopInventory().getHolder() instanceof CharacterPickerGui) {
 			return;
 		}
 		if (!Bukkit.getPluginManager().isPluginEnabled("RPCharacters")) {
-			sessions.returnLetter(player, false);
+			sessions.returnLetter(player, session, false);
 			player.sendMessage(config.msgRpcMissing());
 			return;
 		}
 		List<SelectedTarget> targets = CharacterPickerGui.loadTargets();
 		if (targets.isEmpty()) {
-			sessions.returnLetter(player, false);
+			sessions.returnLetter(player, session, false);
 			player.sendMessage(config.msgNoTargets());
 			return;
 		}
 		targets.removeIf(t -> player.getUniqueId().equals(t.getOwnerUuid()));
 		if (targets.isEmpty()) {
-			sessions.returnLetter(player, false);
+			sessions.returnLetter(player, session, false);
 			player.sendMessage(config.msgCannotSendToSelf());
 			return;
 		}
-		CharacterPickerGui picker = new CharacterPickerGui(this, targets);
+		CharacterPickerGui picker = new CharacterPickerGui(this, session, targets);
+		if (!sessions.isCurrent(player, session)) return;
 		player.sendMessage(config.msgPickerSelect());
 		player.openInventory(picker.getInventory());
 		// Skin lookups can take minutes, so fill in missing heads after the picker is open.
@@ -140,14 +162,11 @@ public final class BirdMessenger extends JavaPlugin {
 	}
 
 	private void refreshPickerHeads(Player player, CharacterPickerGui picker) {
-		if (!player.isOnline()
+		if (!sessions.isCurrent(player, picker.session())
 				|| player.getOpenInventory().getTopInventory().getHolder() != picker) {
 			return;
 		}
-		SendSession session = sessions.get(player.getUniqueId());
-		if (session == null) {
-			return;
-		}
+		SendSession session = picker.session();
 		List<SelectedTarget> targets = CharacterPickerGui.loadTargets();
 		targets.removeIf(t -> player.getUniqueId().equals(t.getOwnerUuid()));
 		picker.setTargets(targets);

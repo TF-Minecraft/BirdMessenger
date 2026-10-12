@@ -1,11 +1,14 @@
 package net.tfminecraft.birdmessenger.letters;
 
 import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.logging.Logger;
 
 import org.bukkit.Bukkit;
@@ -19,10 +22,17 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.scheduler.BukkitScheduler;
+import org.bukkit.plugin.ServicesManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
+import net.tfminecraft.tlibs.character.CharacterIdentity;
+import net.tfminecraft.tlibs.character.CharacterRef;
+import net.tfminecraft.tlibs.character.CharacterSession;
 
 class LetterListenerTest {
     private BirdMessenger plugin;
@@ -33,6 +43,9 @@ class LetterListenerTest {
     private ItemStack snapshot;
     private ItemStack replacement;
     private BookMeta edited;
+    private ServicesManager services;
+    private CharacterIdentity identity;
+    private CharacterSession session;
     private final List<Runnable> pending = new ArrayList<>();
 
     @BeforeEach void setup() {
@@ -40,6 +53,12 @@ class LetterListenerTest {
         plugin = mock(BirdMessenger.class);
         when(plugin.getLogger()).thenReturn(Logger.getAnonymousLogger());
         player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        services = mock(ServicesManager.class);
+        identity = mock(CharacterIdentity.class);
+        session = null;
+        when(identity.currentSession(player)).thenAnswer(call -> Optional.ofNullable(session));
+        when(identity.isCurrent(any())).thenAnswer(call -> call.getArgument(0).equals(session));
         inventory = mock(PlayerInventory.class);
         scheduler = mock(BukkitScheduler.class);
         original = mock(ItemStack.class);
@@ -63,7 +82,7 @@ class LetterListenerTest {
         for (int slot : new int[] {0, 40}) {
             setup();
             PlayerEditBookEvent event = editEvent(slot, false);
-            try (var bukkit = mockStatic(Bukkit.class);
+            try (var bukkit = mockBukkit();
                  var factories = mockConstruction(LetterItems.class, (items, context) -> {
                      when(items.isLetter(original)).thenReturn(true);
                      when(items.isEditableLetter(original)).thenReturn(true);
@@ -86,7 +105,7 @@ class LetterListenerTest {
                 for (String change : List.of("moved", "replaced", "mutated", "amount", "offline")) {
                     setup();
                     PlayerEditBookEvent event = editEvent(slot, signing);
-                    try (var bukkit = mockStatic(Bukkit.class);
+                    try (var bukkit = mockBukkit();
                          var factories = mockConstruction(LetterItems.class, (items, context) -> {
                              when(items.isLetter(original)).thenReturn(true);
                              when(items.isEditableLetter(original)).thenReturn(true);
@@ -113,7 +132,7 @@ class LetterListenerTest {
 
     @Test void signingStillReplacesTheOriginalEventSlot() {
         PlayerEditBookEvent event = editEvent(40, true);
-        try (var bukkit = mockStatic(Bukkit.class);
+        try (var bukkit = mockBukkit();
              var factories = mockConstruction(LetterItems.class, (items, context) -> {
                  when(items.isLetter(original)).thenReturn(true);
                  when(items.createSealedLetter(edited, player)).thenReturn(replacement);
@@ -128,7 +147,8 @@ class LetterListenerTest {
 
     @Test void failedUnsignedSaveKeepsTheOriginalLetterAndCancelsTheDestructiveWrite() {
         PlayerEditBookEvent event = editEvent(0, false);
-        try (var factories = mockConstruction(LetterItems.class, (items, context) -> {
+        try (var bukkit = mockBukkit();
+             var factories = mockConstruction(LetterItems.class, (items, context) -> {
             when(items.isEditableLetter(original)).thenReturn(true);
         })) {
             new LetterListener(plugin).onBookSign(event);
@@ -170,7 +190,7 @@ class LetterListenerTest {
             for (String change : List.of("replaced", "mutated", "amount", "offline")) {
                 setup();
                 PlayerInteractEvent event = openEvent(hand);
-                try (var bukkit = mockStatic(Bukkit.class);
+                try (var bukkit = mockBukkit();
                      var factories = mockConstruction(LetterItems.class, (items, context) -> {
                          when(items.isSealedLetter(original)).thenReturn(true);
                          when(items.createOpenedLetter(edited)).thenReturn(replacement);
@@ -195,7 +215,7 @@ class LetterListenerTest {
         for (EquipmentSlot hand : List.of(EquipmentSlot.HAND, EquipmentSlot.OFF_HAND)) {
             setup();
             PlayerInteractEvent event = openEvent(hand);
-            try (var bukkit = mockStatic(Bukkit.class);
+            try (var bukkit = mockBukkit();
                  var factories = mockConstruction(LetterItems.class, (items, context) -> {
                      when(items.isSealedLetter(original)).thenReturn(true);
                      when(items.createOpenedLetter(edited)).thenReturn(replacement);
@@ -240,7 +260,7 @@ class LetterListenerTest {
                 case "amount" -> when(original.getAmount()).thenReturn(2);
                 case "already-resolved" -> before.put("resolved", true);
             }
-            try (var bukkit = mockStatic(Bukkit.class);
+            try (var bukkit = mockBukkit();
                  var factories = mockConstruction(LetterItems.class, (items, context) -> {
                      when(items.isSealedLetter(original)).thenReturn(true);
                      when(items.createOpenedLetter(edited)).thenReturn(replacement);
@@ -256,7 +276,7 @@ class LetterListenerTest {
 
     @Test void failedSigningLeavesOriginalInPlaceAndDoesNotScheduleAReplacement() {
         PlayerEditBookEvent event = editEvent(0, true);
-        try (var bukkit = mockStatic(Bukkit.class);
+        try (var bukkit = mockBukkit();
              var factories = mockConstruction(LetterItems.class, (items, context) -> {
                  when(items.isLetter(original)).thenReturn(true);
                  when(items.createSealedLetter(edited, player)).thenReturn(null);
@@ -272,7 +292,7 @@ class LetterListenerTest {
 
     @Test void failedOpeningKeepsTheOriginalSealAndReportsTheFailure() {
         PlayerInteractEvent event = openEvent(EquipmentSlot.OFF_HAND);
-        try (var bukkit = mockStatic(Bukkit.class);
+        try (var bukkit = mockBukkit();
              var factories = mockConstruction(LetterItems.class, (items, context) -> {
                  when(items.isSealedLetter(original)).thenReturn(true);
                  when(items.createOpenedLetter(edited)).thenReturn(null);
@@ -283,6 +303,128 @@ class LetterListenerTest {
             verify(inventory, never()).setItemInOffHand(any());
             verifyNoInteractions(scheduler);
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"edit", "sign", "open"})
+    void delayedWritesRequireTheCapturedCharacterGenerationAndConnection(String operation) {
+        for (String change : List.of("current", "invalidated", "switch-back", "provider-lost", "reconnect")) {
+            setup();
+            session = new CharacterSession(new CharacterRef(player.getUniqueId(), UUID.randomUUID()), 1);
+            CharacterSession originalSession = session;
+            when(services.load(CharacterIdentity.class)).thenReturn(identity);
+            try (var bukkit = mockBukkit(); var factories = successfulFactories()) {
+                schedule(operation);
+                assertEquals(1, pending.size());
+                switch (change) {
+                    case "invalidated" -> session = null;
+                    case "switch-back" -> {
+                        session = new CharacterSession(new CharacterRef(player.getUniqueId(), UUID.randomUUID()), 2);
+                        session = new CharacterSession(originalSession.ref(), 3);
+                    }
+                    case "provider-lost" -> when(services.load(CharacterIdentity.class)).thenReturn(null);
+                    case "reconnect" -> {
+                        Player replacementPlayer = mock(Player.class);
+                        bukkit.when(() -> Bukkit.getPlayer(player.getUniqueId())).thenReturn(replacementPlayer);
+                    }
+                }
+                pending.getLast().run();
+                if (change.equals("current")) {
+                    verifyWrite(operation);
+                } else {
+                    verifyNoWrites();
+                    verify(player, never()).sendMessage(anyString());
+                }
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"edit", "sign", "open"})
+    void standaloneWritesRejectProviderArrivalAndAReplacementConnection(String operation) {
+        for (String change : List.of("unchanged", "provider-arrived", "reconnect")) {
+            setup();
+            try (var bukkit = mockBukkit(); var factories = successfulFactories()) {
+                schedule(operation);
+                assertEquals(1, pending.size());
+                if (change.equals("provider-arrived")) {
+                    session = new CharacterSession(new CharacterRef(player.getUniqueId(), UUID.randomUUID()), 1);
+                    when(services.load(CharacterIdentity.class)).thenReturn(identity);
+                } else if (change.equals("reconnect")) {
+                    bukkit.when(() -> Bukkit.getPlayer(player.getUniqueId())).thenReturn(mock(Player.class));
+                }
+                pending.getLast().run();
+                if (change.equals("unchanged")) verifyWrite(operation);
+                else verifyNoWrites();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"edit", "sign", "open"})
+    void pendingCharactersCannotRewriteLettersButMayStillReadThem(String operation) {
+        when(services.load(CharacterIdentity.class)).thenReturn(identity);
+        try (var bukkit = mockBukkit(); var factories = successfulFactories()) {
+            LetterListener listener = new LetterListener(plugin);
+            if (operation.equals("open")) {
+                PlayerInteractEvent event = openEvent(EquipmentSlot.HAND);
+                listener.onBookOpen(event);
+                verify(event, never()).setCancelled(anyBoolean());
+            } else {
+                PlayerEditBookEvent event = editEvent(0, operation.equals("sign"));
+                listener.onBookSign(event);
+                verify(event).setCancelled(true);
+            }
+            assertTrue(pending.isEmpty());
+            verifyNoWrites();
+            LetterItems factory = factories.constructed().getFirst();
+            verify(factory, never()).createEditedLetter(any(), any());
+            verify(factory, never()).createSealedLetter(any(), any());
+            verify(factory, never()).createOpenedLetter(any());
+            verify(player, never()).sendMessage(anyString());
+        }
+    }
+
+    private org.mockito.MockedConstruction<LetterItems> successfulFactories() {
+        return mockConstruction(LetterItems.class, (items, context) -> {
+            when(items.isLetter(original)).thenReturn(true);
+            when(items.isEditableLetter(original)).thenReturn(true);
+            when(items.isSealedLetter(original)).thenReturn(true);
+            when(items.createEditedLetter(edited, snapshot)).thenReturn(replacement);
+            when(items.createSealedLetter(edited, player)).thenReturn(replacement);
+            when(items.createOpenedLetter(edited)).thenReturn(replacement);
+        });
+    }
+
+    private void schedule(String operation) {
+        LetterListener listener = new LetterListener(plugin);
+        if (operation.equals("open")) {
+            PlayerInteractEvent event = openEvent(EquipmentSlot.HAND);
+            listener.onBookOpen(event);
+            verify(event, never()).setCancelled(anyBoolean());
+        } else {
+            listener.onBookSign(editEvent(0, operation.equals("sign")));
+        }
+    }
+
+    private void verifyWrite(String operation) {
+        if (operation.equals("open")) verify(inventory).setItemInMainHand(replacement);
+        else verify(inventory).setItem(0, replacement);
+    }
+
+    private void verifyNoWrites() {
+        verify(inventory, never()).setItem(anyInt(), any());
+        verify(inventory, never()).setItemInMainHand(any());
+        verify(inventory, never()).setItemInOffHand(any());
+    }
+
+    private MockedStatic<Bukkit> mockBukkit() {
+        MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
+        bukkit.when(Bukkit::isPrimaryThread).thenReturn(true);
+        bukkit.when(Bukkit::getServicesManager).thenReturn(services);
+        bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
+        bukkit.when(() -> Bukkit.getPlayer(player.getUniqueId())).thenReturn(player);
+        return bukkit;
     }
 
     private PlayerEditBookEvent editEvent(int slot, boolean signing) {

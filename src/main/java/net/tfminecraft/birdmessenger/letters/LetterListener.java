@@ -16,6 +16,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
+import net.tfminecraft.tlibs.character.CharacterSession;
+import net.tfminecraft.tlibs.character.Characters;
 
 
 public class LetterListener implements Listener {
@@ -43,6 +45,8 @@ public class LetterListener implements Listener {
         // Own the save for both edits and signatures so that handler and vanilla
         // cannot turn the letter into an ordinary book.
         event.setCancelled(true);
+        CharacterSession session = Characters.currentSession(player).orElse(null);
+        if (session == null && Characters.available()) return;
         if (!event.isSigning()) {
             ItemStack restored = items.createEditedLetter(event.getNewBookMeta(), original);
             if (restored == null) {
@@ -51,7 +55,7 @@ public class LetterListener implements Listener {
                 return;
             }
             Bukkit.getScheduler().runTask(plugin, () -> {
-                if (!player.isOnline() || !unchanged(original, player.getInventory().getItem(slot))) return;
+                if (!isCurrent(player, session) || !unchanged(original, player.getInventory().getItem(slot))) return;
                 player.getInventory().setItem(slot, restored);
             });
             return;
@@ -64,7 +68,7 @@ public class LetterListener implements Listener {
         }
         // The next-tick hop is required - setting the item inside the cancelled event does not stick.
         Bukkit.getScheduler().runTask(plugin, () -> {
-            if (!player.isOnline() || !unchanged(original, player.getInventory().getItem(slot))) return;
+            if (!isCurrent(player, session) || !unchanged(original, player.getInventory().getItem(slot))) return;
             player.getInventory().setItem(slot, sealed);
             sendMessage(player, LetterConfig.signedMessage);
         });
@@ -87,6 +91,8 @@ public class LetterListener implements Listener {
         if (current == null) return;
 
         Player player = event.getPlayer();
+        CharacterSession session = Characters.currentSession(player).orElse(null);
+        if (session == null && Characters.available()) return;
         ItemStack opened = items.createOpenedLetter(current);
         if (opened == null) {
             warn("Failed to create opened letter for " + player.getName());
@@ -95,7 +101,7 @@ public class LetterListener implements Listener {
         }
         // Not cancelled - the book still opens for reading, so swap the item on the next tick.
         Bukkit.getScheduler().runTask(plugin, () -> {
-            if (!player.isOnline()) return;
+            if (!isCurrent(player, session)) return;
             ItemStack held = hand == EquipmentSlot.OFF_HAND
                     ? player.getInventory().getItemInOffHand() : player.getInventory().getItemInMainHand();
             if (!unchangedOnOpen(original, held)) return;
@@ -106,6 +112,11 @@ public class LetterListener implements Listener {
             }
             sendMessage(player, LetterConfig.openedMessage);
         });
+    }
+
+    private static boolean isCurrent(Player player, CharacterSession session) {
+        return player.isOnline() && Bukkit.getPlayer(player.getUniqueId()) == player
+                && (session == null ? !Characters.available() : Characters.isCurrent(session));
     }
 
     private static boolean unchanged(ItemStack original, ItemStack current) {

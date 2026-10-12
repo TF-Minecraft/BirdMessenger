@@ -13,8 +13,8 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.proc>full</maven.compiler.proc>
-        <rpcharacters.version>2.0.1</rpcharacters.version>
-        <tlibs.version>2.0.0</tlibs.version>
+        <rpcharacters.version>2.16.0</rpcharacters.version>
+        <tlibs.version>2.3.0</tlibs.version>
     </properties>
 
     <dependencies>

@@ -1,8 +1,8 @@
 package net.tfminecraft.birdmessenger.mail;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
+import java.util.logging.Level;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Sound;
@@ -13,6 +13,8 @@ import net.tfminecraft.birdmessenger.BirdMessenger;
 import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.util.ItemGive;
+import net.tfminecraft.tlibs.character.CharacterSession;
+import net.tfminecraft.tlibs.character.Characters;
 
 public final class MailService {
 
@@ -35,29 +37,33 @@ public final class MailService {
 	}
 
 	/**
-	 * @return true if the letter was accepted and is in flight; false if send was refused
+	 * @return true if the letter was accepted for delivery; false if send was refused
 	 */
-	public boolean trySend(Player sender, ItemStack letter, SelectedTarget target) {
-		if (sender == null || letter == null || target == null) {
+	public boolean trySend(Player sender, CharacterSession origin, ItemStack letter, SelectedTarget target) {
+		if (origin == null || letter == null || target == null) {
+			return false;
+		}
+		if (!isCurrentConnection(sender, origin)) {
+			refundLetter(sender, origin, letter);
 			return false;
 		}
 		if (sender.getUniqueId().equals(target.getOwnerUuid())) {
-			ItemGive.giveOrDrop(sender, letter);
-			sender.sendMessage(plugin.config().msgCannotSendToSelf());
+			refundLetter(sender, origin, letter);
+			notifyAfterRefund(() -> sender.sendMessage(plugin.config().msgCannotSendToSelf()));
 			return false;
 		}
 		boolean listed = RPCharacters.listMailTargets().stream().anyMatch(recipient ->
 				target.getOwnerUuid().equals(recipient.getOwnerUuid())
 						&& target.getCharacterId().equals(recipient.getCharacterId()));
 		if (!listed) {
-			ItemGive.giveOrDrop(sender, letter);
-			sender.sendMessage(plugin.config().msgRecipientUnavailable());
+			refundLetter(sender, origin, letter);
+			notifyAfterRefund(() -> sender.sendMessage(plugin.config().msgRecipientUnavailable()));
 			return false;
 		}
 		Integer flightSeconds = FlightTime.computeFlightSecondsAtSend(plugin.config(), sender, target);
 		if (flightSeconds == null) {
-			ItemGive.giveOrDrop(sender, letter);
-			sender.sendMessage(plugin.config().msgDifferentWorld());
+			refundLetter(sender, origin, letter);
+			notifyAfterRefund(() -> sender.sendMessage(plugin.config().msgDifferentWorld()));
 			return false;
 		}
 		long deliveryTime = System.currentTimeMillis() + (flightSeconds * 1000L);
@@ -70,11 +76,45 @@ public final class MailService {
 				target.getDisplayTab(),
 				letter.clone(),
 				deliveryTime);
+		if (!isCurrentConnection(sender, origin)) {
+			refundLetter(sender, origin, letter);
+			return false;
+		}
 		store.putInFlight(mail);
-		sender.sendMessage(plugin.config().msgBirdLeft(flightSeconds));
-		sender.playSound(sender.getLocation(), Sound.ENTITY_PARROT_AMBIENT, 1f, 1.2f);
-		schedule(mail);
+		// The store owns the letter now; later failures must not trigger a caller refund.
+		try {
+			schedule(mail);
+			sender.sendMessage(plugin.config().msgBirdLeft(flightSeconds));
+			sender.playSound(sender.getLocation(), Sound.ENTITY_PARROT_AMBIENT, 1f, 1.2f);
+		} catch (RuntimeException ex) {
+			plugin.getLogger().log(Level.SEVERE,
+					"Could not finish scheduling or feedback for accepted letter " + mail.getId(), ex);
+		}
 		return true;
+	}
+
+	private void notifyAfterRefund(Runnable notification) {
+		try {
+			notification.run();
+		} catch (RuntimeException ex) {
+			plugin.getLogger().log(Level.SEVERE, "Could not notify sender after returning their letter", ex);
+		}
+	}
+
+	private void refundLetter(Player sender, CharacterSession origin, ItemStack letter) {
+		if (isCurrentConnection(sender, origin)) {
+			ItemGive.giveOrDrop(sender, letter);
+			return;
+		}
+		store.addPending(origin.ref().characterId().toString(),
+				new MailStore.PendingLetter(origin.ref().ownerId(), null, "", letter));
+	}
+
+	private static boolean isCurrentConnection(Player player, CharacterSession session) {
+		return player != null && session != null && player.isOnline()
+				&& player.getUniqueId().equals(session.ref().ownerId())
+				&& Bukkit.getPlayer(session.ref().ownerId()) == player
+				&& Characters.isCurrent(session);
 	}
 
 	public void resume() {
@@ -91,22 +131,16 @@ public final class MailService {
 			if (player == null) {
 				continue;
 			}
-			var active = net.tfminecraft.rpcharacters.RPCharacters.getActiveCharacter(player);
-			if (active != null) {
-				tryDeliverPending(player, active.getId());
-			}
+			Characters.currentSession(player).ifPresent(session -> tryDeliverPending(player, session));
 		}
 	}
 
-	public void tryDeliverPending(Player owner, String characterId) {
-		if (owner == null || !owner.isOnline() || characterId == null || characterId.isBlank()) {
-			return;
-		}
-		if (!MailDelivery.isActiveCharacter(owner, characterId)) {
-			return;
-		}
-		List<MailStore.PendingLetter> letters = store.takePending(characterId);
-		for (MailStore.PendingLetter pending : letters) {
+	public void tryDeliverPending(Player owner, CharacterSession session) {
+		while (isCurrentConnection(owner, session)) {
+			MailStore.PendingLetter pending = store.pollPending(session.ref());
+			if (pending == null) {
+				return;
+			}
 			delivery.deliver(owner, pending.item, pending.senderUuid, pending.addresseeDisplayTab);
 		}
 	}
@@ -132,8 +166,8 @@ public final class MailService {
 			DiscordNotifyService.notifyFlightComplete(plugin, mail);
 			return;
 		}
-		store.removeInFlight(mail.getId());
 		store.addPending(mail);
+		store.removeInFlight(mail.getId());
 		if (plugin.config().discordEnabled() && Bukkit.getPluginManager().isPluginEnabled("TFMCWeb")) {
 			DiscordNotifyService.notifyFlightComplete(
 					plugin, mail, queued -> notifySenderPending(mail, owner, queued));

@@ -11,18 +11,12 @@ import java.util.Map;
 import java.util.UUID;
 import net.tfminecraft.birdmessenger.BirdConfig;
 import net.tfminecraft.birdmessenger.BirdMessenger;
-import net.tfminecraft.birdmessenger.listener.CharacterActivatedListener;
 import net.tfminecraft.birdmessenger.listener.CoopListener;
-import net.tfminecraft.birdmessenger.listener.PlayerSessionListener;
-import net.tfminecraft.birdmessenger.mail.MailService;
 import net.tfminecraft.birdmessenger.session.SelectedTarget;
 import net.tfminecraft.birdmessenger.session.SendSession;
-import net.tfminecraft.birdmessenger.session.SendSessionManager;
 import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.rpcharacters.api.CharacterSkull;
-import net.tfminecraft.rpcharacters.lifecycle.CharacterActivatedEvent;
 import net.tfminecraft.rpcharacters.mail.CharacterMailTarget;
-import net.tfminecraft.rpcharacters.objects.RPCharacter;
 import net.tfminecraft.tlibs.TLibs;
 import net.tfminecraft.tlibs.objects.api.BlockAPI;
 import org.bukkit.Bukkit;
@@ -34,7 +28,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -50,7 +43,10 @@ class GuiPresentationCoverageTest {
   @Test
   void letterGuiLeavesOnlyTheLetterSlotEmptyAndNamesTheBorder() {
     try (Harness h = new Harness()) {
-      LetterGui gui = new LetterGui(h.plugin);
+      SendSession session = mock(SendSession.class);
+      LetterGui gui = new LetterGui(h.plugin, session);
+      assertSame(session, gui.session());
+      verify(session).setLetterInventory(gui.getInventory());
       assertEquals(9, gui.getInventory().getSize());
       assertSame(gui, gui.getInventory().getHolder());
       Map<Integer, ItemStack> slots = h.contents.get(gui.getInventory());
@@ -78,7 +74,9 @@ class GuiPresentationCoverageTest {
                 "Character " + i,
                 "texture" + i,
                 "signature" + i));
-      CharacterPickerGui gui = new CharacterPickerGui(h.plugin, targets);
+      SendSession session = mock(SendSession.class);
+      CharacterPickerGui gui = new CharacterPickerGui(h.plugin, session, targets);
+      assertSame(session, gui.session());
       assertSame(targets, gui.targets());
       assertEquals(54, gui.getInventory().getSize());
       assertEquals(1, gui.maxPage());
@@ -92,9 +90,8 @@ class GuiPresentationCoverageTest {
       assertNull(gui.targetAt(0, 45));
       assertNull(gui.targetAt(-1, 0));
       assertNull(gui.targetAt(2, 0));
-      SendSession session = new SendSession(UUID.randomUUID());
-      session.setPickerPage(99);
-      session.setSelected(targets.getLast());
+      when(session.getPickerPage()).thenReturn(99);
+      when(session.getSelected()).thenReturn(targets.getLast());
       CharacterPickerGui.applyPage(session, gui);
       assertEquals(4, slots.size());
       assertTrue(slots.containsKey(CharacterPickerGui.SLOT_PREV));
@@ -167,42 +164,15 @@ class GuiPresentationCoverageTest {
       verify(event).setCancelled(true);
       verify(event).setUseItemInHand(Event.Result.DENY);
       verify(event).setUseInteractedBlock(Event.Result.DENY);
-      verify(player, never()).openInventory(any(Inventory.class));
+      verify(h.plugin, never()).openLetterGui(any());
       when(event.getHand()).thenReturn(EquipmentSlot.HAND);
       when(player.isSneaking()).thenReturn(true);
       listener.onRightClick(event);
-      verify(player, never()).openInventory(any(Inventory.class));
+      verify(h.plugin, never()).openLetterGui(any());
       when(player.isSneaking()).thenReturn(false);
       listener.onRightClick(event);
-      verify(player)
-          .openInventory(
-              argThat((Inventory inventory) -> inventory.getHolder() instanceof LetterGui));
+      verify(h.plugin).openLetterGui(player);
     }
-  }
-
-  @Test
-  void quittingReturnsHeldMailAndActivationDeliversForTheActualCharacter() {
-    BirdMessenger plugin = mock(BirdMessenger.class);
-    SendSessionManager sessions = mock(SendSessionManager.class);
-    MailService mail = mock(MailService.class);
-    when(plugin.sessions()).thenReturn(sessions);
-    when(plugin.mail()).thenReturn(mail);
-    Player player = mock(Player.class);
-    PlayerQuitEvent quit = mock(PlayerQuitEvent.class);
-    when(quit.getPlayer()).thenReturn(player);
-    new PlayerSessionListener(plugin).onQuit(quit);
-    verify(sessions).returnLetter(player, false);
-    CharacterActivatedListener listener = new CharacterActivatedListener(plugin);
-    CharacterActivatedEvent event = mock(CharacterActivatedEvent.class);
-    listener.onCharacterActivated(event);
-    when(event.getOwner()).thenReturn(player);
-    listener.onCharacterActivated(event);
-    verifyNoInteractions(mail);
-    RPCharacter character = mock(RPCharacter.class);
-    when(character.getId()).thenReturn("active");
-    when(event.getCharacter()).thenReturn(character);
-    listener.onCharacterActivated(event);
-    verify(mail).tryDeliverPending(player, "active");
   }
 
   private static final class Harness implements AutoCloseable {
