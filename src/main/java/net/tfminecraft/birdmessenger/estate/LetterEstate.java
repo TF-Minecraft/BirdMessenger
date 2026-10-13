@@ -1,13 +1,8 @@
 package net.tfminecraft.birdmessenger.estate;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -28,6 +23,7 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.ServicePriority;
 
 import net.tfminecraft.birdmessenger.mail.MailStore;
+import net.tfminecraft.birdmessenger.util.DurableFiles;
 import net.tfminecraft.birdmessenger.mail.MailStore.Destination;
 import net.tfminecraft.birdmessenger.mail.MailStore.Move;
 import net.tfminecraft.birdmessenger.mail.MailStore.PendingLetter;
@@ -91,15 +87,13 @@ public final class LetterEstate implements EstateParticipant {
 		String testator = decision.testator().characterId().toString();
 		Optional<CharacterRef> heir = decision.letters().character();
 		try {
+			// Letters with no move stay with the testator for staff; describe() lists them.
 			List<Move> moves = new ArrayList<>();
-			int held = 0;
 			for (PendingLetter letter : store.identifyPending(testator)) {
 				Move move = heir.isPresent()
 						? new Move(letter.id, Destination.HEIR, heir.get().characterId().toString(), heir.get().ownerId())
 						: toSender(letter);
-				if (move == null) {
-					held++;
-				} else {
+				if (move != null) {
 					moves.add(move);
 				}
 			}
@@ -115,7 +109,7 @@ public final class LetterEstate implements EstateParticipant {
 			Set<String> waiting = new HashSet<>();
 			store.pendingFor(testator).forEach(letter -> waiting.add(String.valueOf(letter.id)));
 			List<String> moved = planned.stream().filter(id -> !waiting.contains(id)).toList();
-			return Outcome.done(Map.of("letters", moved.size(), "held", held), moved);
+			return Outcome.done(Map.of("letters", moved.size()), moved);
 		} catch (IOException | RuntimeException ex) {
 			logger.warning("Could not move the letters of estate " + decision.deathId() + ": " + ex);
 			return Outcome.retry("Could not move a letter: " + ex.getMessage());
@@ -148,32 +142,45 @@ public final class LetterEstate implements EstateParticipant {
 
 	@Override
 	public Holdings describe(UUID characterId) {
-		List<String> labels = store.pendingFor(characterId.toString()).stream().map(LetterEstate::label).toList();
+		List<String> labels = store.pendingFor(characterId.toString()).stream().map(this::label).toList();
 		return labels.isEmpty() ? Holdings.NONE : new Holdings(Map.of("letters", labels.size()), labels);
 	}
 
-	private static String label(PendingLetter letter) {
-		String name = letter.id == null ? "Letter" : "Letter " + letter.id;
+	// Names the writer where it can, never an account or character UUID.
+	private String label(PendingLetter letter) {
+		String name = letter.id == null ? "Letter" : "Letter " + letter.id.toString().substring(0, 8);
 		if (letter.returned) {
 			return name + ", this character's own unsent letter";
 		}
-		if (letter.senderCharacterId != null) {
-			return name + " from character " + letter.senderCharacterId;
+		if (letter.senderCharacterId == null) {
+			return letter.senderUuid == null ? name + " with no sender" : name + " from before writers were recorded";
 		}
-		return letter.senderUuid == null ? name : name + " from account " + letter.senderUuid;
+		Optional<CharacterInfo> writer;
+		try {
+			writer = characters.apply(UUID.fromString(letter.senderCharacterId));
+		} catch (IllegalArgumentException ex) {
+			writer = Optional.empty();
+		}
+		return writer.map(info -> name + " from " + info.name() + (info.alive() ? "" : " (dead)"))
+				.orElse(name + " from an unknown writer");
 	}
 
 	/** Settles every decided estate whose guard holds and reports outcomes that changed. */
 	void reconcile() {
 		for (EstateDecision decision : decided.get()) {
-			if (!guard.test(decision)) {
-				continue;
-			}
-			Outcome outcome = settle(decision);
-			Map.Entry<Long, Outcome> last = Map.entry(decision.revision(), outcome);
-			if (!last.equals(reported.get(decision.deathId()))
-					&& reporter.report(decision.deathId(), ID, decision.revision(), outcome)) {
-				reported.put(decision.deathId(), last);
+			// One estate failing must not stop the others until the next hour.
+			try {
+				if (!guard.test(decision)) {
+					continue;
+				}
+				Outcome outcome = settle(decision);
+				Map.Entry<Long, Outcome> last = Map.entry(decision.revision(), outcome);
+				if (!last.equals(reported.get(decision.deathId()))
+						&& reporter.report(decision.deathId(), ID, decision.revision(), outcome)) {
+					reported.put(decision.deathId(), last);
+				}
+			} catch (RuntimeException ex) {
+				logger.warning("Could not reconcile the letters of estate " + decision.deathId() + ": " + ex);
 			}
 		}
 	}
@@ -198,17 +205,6 @@ public final class LetterEstate implements EstateParticipant {
 		YamlConfiguration journal = new YamlConfiguration();
 		journal.set("death", deathId.toString());
 		journal.set("letters", new ArrayList<>(ids));
-		Files.createDirectories(journals);
-		Path temp = Files.createTempFile(journals, ".pending-", ".tmp");
-		try {
-			try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE)) {
-				channel.write(ByteBuffer.wrap(journal.saveToString().getBytes(StandardCharsets.UTF_8)));
-				channel.force(true);
-			}
-			Files.move(temp, journals.resolve(deathId + ".yml"), StandardCopyOption.ATOMIC_MOVE,
-					StandardCopyOption.REPLACE_EXISTING);
-		} finally {
-			Files.deleteIfExists(temp);
-		}
+		DurableFiles.write(journals.resolve(deathId + ".yml"), journal.saveToString());
 	}
 }

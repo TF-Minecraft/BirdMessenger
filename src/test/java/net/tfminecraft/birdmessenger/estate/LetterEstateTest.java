@@ -87,7 +87,7 @@ class LetterEstateTest {
 
     Outcome.Done done = assertInstanceOf(Outcome.Done.class, estate.settle(decision(Recipient.character(HEIR), 0)));
 
-    assertEquals(Map.of("letters", 2, "held", 0), done.counts());
+    assertEquals(Map.of("letters", 2), done.counts());
     assertTrue(done.movedIds().contains(sent.toString()));
     assertEquals(List.of(), store.pendingFor(dead()));
     List<PendingLetter> heirs = store.pendingFor(HEIR.characterId().toString());
@@ -109,7 +109,7 @@ class LetterEstateTest {
 
     Outcome.Done done = assertInstanceOf(Outcome.Done.class, estate.settle(decision(Recipient.SENDER, 0)));
 
-    assertEquals(Map.of("letters", 2, "held", 5), done.counts());
+    assertEquals(Map.of("letters", 2), done.counts());
     assertTrue(done.movedIds().contains(toWriter.toString()));
     PendingLetter back = store.pendingFor(WRITER.characterId().toString()).getFirst();
     assertEquals(toWriter, back.id);
@@ -139,7 +139,7 @@ class LetterEstateTest {
   @Test
   void heldLetterGoesBackOnceItsWriterLivesAgain() {
     UUID held = send(DEAD_WRITER);
-    assertEquals(Map.of("letters", 0, "held", 1),
+    assertEquals(Map.of("letters", 0),
         assertInstanceOf(Outcome.Done.class, estate.settle(decision(Recipient.SENDER, 0))).counts());
 
     statuses.put(DEAD_WRITER.characterId(), CharacterStatus.ALIVE);
@@ -171,6 +171,38 @@ class LetterEstateTest {
   }
 
   @Test
+  void aQueueThatCannotBeSavedRetriesAndMovesNothing() throws Exception {
+    UUID id = send(WRITER);
+    Path pending = root.resolve("pending_mail.yml");
+    Files.delete(pending);
+    Files.createDirectories(pending.resolve("blocked"));
+
+    assertEquals(Outcome.Kind.RETRY, estate.settle(decision(Recipient.character(HEIR), 0)).kind());
+
+    assertEquals(List.of(id), store.pendingFor(dead()).stream().map(letter -> letter.id).toList());
+    assertEquals(List.of(), store.pendingFor(HEIR.characterId().toString()));
+  }
+
+  @Test
+  void oneFailingEstateDoesNotStopTheReconcileOfTheOthers() {
+    send(WRITER);
+    EstateDecision broken = new EstateDecision(UUID.randomUUID(), HEIR, Optional.empty(), Instant.EPOCH,
+        Optional.empty(), Optional.empty(), Optional.empty(), Recipient.FROZEN, Recipient.FROZEN, Recipient.FROZEN,
+        Recipient.SENDER, 0);
+    estate.guard = decision -> {
+      if (decision == broken) throw new IllegalStateException("service failed");
+      return true;
+    };
+    estate.decided = () -> List.of(broken, decision(Recipient.SENDER, 0));
+    List<UUID> reported = new ArrayList<>();
+    estate.reporter = (death, participant, revision, outcome) -> reported.add(death);
+
+    estate.reconcile();
+
+    assertEquals(List.of(DEATH), reported);
+  }
+
+  @Test
   void describeListsWaitingLettersAndWhoWroteThem() {
     UUID id = send(WRITER);
     store.addPending(dead(), new PendingLetter(DEAD.ownerId(), WRITER.ownerId(), "Dead", letter("Old")));
@@ -178,11 +210,28 @@ class LetterEstateTest {
     store.addPending(dead(), new PendingLetter(DEAD.ownerId(), null, "Dead", letter("Anonymous")));
 
     Holdings holdings = estate.describe(DEAD.characterId());
-
     assertEquals(Map.of("letters", 4), holdings.counts());
-    assertEquals(List.of("Letter " + id + " from character " + WRITER.characterId(),
-        "Letter from account " + WRITER.ownerId(), "Letter, this character's own unsent letter", "Letter"),
-        holdings.labels());
+
+    send(DEAD_WRITER);
+    store.addPending(new StoredMail(UUID.randomUUID(), WRITER.ownerId(), DEAD.ownerId(), dead(), "Dead",
+        letter("Unknown"), 1L, UUID.randomUUID().toString()));
+    store.addPending(new StoredMail(UUID.randomUUID(), WRITER.ownerId(), DEAD.ownerId(), dead(), "Dead",
+        letter("Garbled"), 1L, "not-a-uuid"));
+
+    holdings = estate.describe(DEAD.characterId());
+
+    assertEquals(Map.of("letters", 7), holdings.counts());
+    List<String> labels = holdings.labels();
+    assertEquals("Letter " + id.toString().substring(0, 8) + " from Writer", labels.get(0));
+    assertEquals(List.of("Letter from before writers were recorded", "Letter, this character's own unsent letter",
+        "Letter with no sender"), labels.subList(1, 4));
+    assertTrue(labels.get(4).endsWith(" from Writer (dead)"));
+    assertTrue(labels.get(5).endsWith(" from an unknown writer"));
+    assertTrue(labels.get(6).endsWith(" from an unknown writer"));
+    // Labels never show account or character UUIDs.
+    for (String label : labels) {
+      assertFalse(label.contains(WRITER.ownerId().toString()) || label.contains(WRITER.characterId().toString()));
+    }
     assertSame(Holdings.NONE, estate.describe(HEIR.characterId()));
   }
 
