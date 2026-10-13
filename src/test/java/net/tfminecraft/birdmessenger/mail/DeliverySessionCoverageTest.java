@@ -139,6 +139,30 @@ class DeliverySessionCoverageTest {
   }
 
   @Test
+  void sentLettersComeBackSayingWhyWhenTheyCould() {
+    BirdConfig config = mock(BirdConfig.class);
+    when(config.msgReturnedRecipientDied()).thenReturn("Recipient died");
+    when(config.msgReturnedToSender()).thenReturn("Returned");
+    MailDelivery delivery = new MailDelivery(config);
+    Player owner = mock(Player.class);
+    ItemStack letter = mock(ItemStack.class);
+    ItemStack copy = mock(ItemStack.class);
+    when(letter.clone()).thenReturn(copy);
+    try (var give = mockStatic(ItemGive.class)) {
+      delivery.returnToSender(null, letter, true);
+      delivery.returnToSender(owner, null, true);
+      give.verifyNoInteractions();
+      delivery.returnToSender(owner, letter, true);
+      delivery.returnToSender(owner, letter, false);
+      give.verify(() -> ItemGive.giveOrDrop(owner, copy), times(2));
+    }
+    var order = inOrder(owner);
+    order.verify(owner).sendMessage("Recipient died");
+    order.verify(owner).sendMessage("Returned");
+    verify(owner, times(2)).playSound((Location) isNull(), eq(Sound.ENTITY_PARROT_FLY), eq(1f), eq(1f));
+  }
+
+  @Test
   void returnedLetterArrivesAsTheWritersOwnUnsentLetter() {
     BirdConfig config = mock(BirdConfig.class);
     when(config.msgUnsentReturned()).thenReturn("Unsent back");

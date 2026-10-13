@@ -35,6 +35,8 @@ messages:
   letter-returned: "&eYour letter has been returned to you."
   letter-cancelled: "&cLetter cancelled."
   unsent-returned: "&bA bird lands at your feet and returns your unsent letter."
+  returned-recipient-died: "&eA bird brings back a letter you sent. Returned: the recipient has died."
+  returned-to-sender: "&eA bird brings back a letter you sent. Returned."
   picker-select: "&7Click a character, then confirm."
   picker-confirm-needed: "&cSelect a character first."
   recipient-unavailable: "&cThat character is no longer available for mail. Your letter has been returned."

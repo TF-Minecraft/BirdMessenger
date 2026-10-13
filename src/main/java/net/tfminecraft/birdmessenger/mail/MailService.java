@@ -76,7 +76,8 @@ public final class MailService {
 				target.getCharacterId(),
 				target.getDisplayTab(),
 				letter.clone(),
-				deliveryTime);
+				deliveryTime,
+				origin.ref().characterId().toString());
 		if (!SendSession.isCurrent(sender, origin)) {
 			refundLetter(sender, origin, letter);
 			return false;
@@ -136,10 +137,15 @@ public final class MailService {
 		store.drainPending(session.ref(), () -> SendSession.isCurrent(owner, session), pending -> {
 			if (pending.returned) {
 				delivery.returnUnsent(owner, pending.item);
+			} else if (pending.recipientDied) {
+				delivery.returnToSender(owner, pending.item, true);
 			} else {
 				delivery.deliver(owner, pending.item, pending.senderUuid, pending.addresseeDisplayTab);
 			}
 		});
+		// Letters returned to the account, whichever of its characters is played.
+		store.drainReturned(session.ref().ownerId(), () -> SendSession.isCurrent(owner, session),
+				pending -> delivery.returnToSender(owner, pending.item, false));
 	}
 
 	private void schedule(StoredMail mail) {

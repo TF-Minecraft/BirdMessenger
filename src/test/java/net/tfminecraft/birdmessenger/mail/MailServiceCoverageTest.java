@@ -57,6 +57,7 @@ class MailServiceCoverageTest {
       assertEquals(f.ownerId, mail.getOwnerUuid());
       assertEquals(f.characterId.toString(), mail.getCharacterId());
       assertEquals("Recipient", mail.getAddresseeDisplayTab());
+      assertEquals(f.origin.ref().characterId().toString(), mail.getSenderCharacterId());
       assertTrue(mail.getDeliveryTime() >= before + 10_000);
       assertTrue(mail.getDeliveryTime() <= System.currentTimeMillis() + 10_000);
       verify(f.sender).sendMessage("Departed");
@@ -206,6 +207,35 @@ class MailServiceCoverageTest {
       f.service.tryDeliverPending(f.owner, returned);
       verify(f.delivery).deliver(f.owner, second, f.senderId, "Second");
       assertTrue(f.pending.get(f.ownerSession.ref()).isEmpty());
+    }
+  }
+
+  @Test
+  void lettersReturnedByAnEstateComeBackToTheWritingCharacterOrItsAccount() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      ItemStack died = mock(ItemStack.class);
+      ItemStack toAccount = mock(ItemStack.class);
+      f.queuePending(new MailStore.PendingLetter(UUID.randomUUID(), f.ownerId, f.ownerId,
+          f.characterId.toString(), "Dead friend", died, false, true));
+      List<UUID> drained = new ArrayList<>();
+      doAnswer(call -> {
+        drained.add(call.getArgument(0));
+        BooleanSupplier stillCurrent = call.getArgument(1);
+        Consumer<MailStore.PendingLetter> deliver = call.getArgument(2);
+        if (stillCurrent.getAsBoolean()) {
+          deliver.accept(new MailStore.PendingLetter(f.ownerId, f.ownerId, "", toAccount));
+        }
+        return null;
+      }).when(f.store).drainReturned(any(), any(), any());
+
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+
+      var order = inOrder(f.delivery);
+      order.verify(f.delivery).returnToSender(f.owner, died, true);
+      order.verify(f.delivery).returnToSender(f.owner, toAccount, false);
+      verifyNoMoreInteractions(f.delivery);
+      assertEquals(List.of(f.ownerId), drained);
     }
   }
 
