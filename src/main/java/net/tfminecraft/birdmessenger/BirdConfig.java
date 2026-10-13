@@ -116,6 +116,15 @@ public final class BirdConfig {
 		return message("unsent-returned", "&bA bird lands at your feet and returns your unsent letter.");
 	}
 
+	public String msgReturnedRecipientDied() {
+		return message("returned-recipient-died",
+				"&eA bird brings back a letter you sent. Returned: the recipient has died.");
+	}
+
+	public String msgReturnedToSender() {
+		return message("returned-to-sender", "&eA bird brings back a letter you sent. Returned.");
+	}
+
 	public String msgLetterCancelled() {
 		return message("letter-cancelled", "&cLetter cancelled.");
 	}

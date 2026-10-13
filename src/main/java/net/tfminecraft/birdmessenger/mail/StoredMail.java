@@ -13,6 +13,8 @@ public final class StoredMail {
 	private final String addresseeDisplayTab;
 	private final ItemStack item;
 	private final long deliveryTime;
+	// The character that wrote the letter; null for letters sent before characters were recorded.
+	private final String senderCharacterId;
 
 	public StoredMail(
 			UUID id,
@@ -22,6 +24,18 @@ public final class StoredMail {
 			String addresseeDisplayTab,
 			ItemStack item,
 			long deliveryTime) {
+		this(id, senderUuid, ownerUuid, characterId, addresseeDisplayTab, item, deliveryTime, null);
+	}
+
+	public StoredMail(
+			UUID id,
+			UUID senderUuid,
+			UUID ownerUuid,
+			String characterId,
+			String addresseeDisplayTab,
+			ItemStack item,
+			long deliveryTime,
+			String senderCharacterId) {
 		this.id = id;
 		this.senderUuid = senderUuid;
 		this.ownerUuid = ownerUuid;
@@ -29,6 +43,7 @@ public final class StoredMail {
 		this.addresseeDisplayTab = addresseeDisplayTab != null ? addresseeDisplayTab : "";
 		this.item = item;
 		this.deliveryTime = deliveryTime;
+		this.senderCharacterId = senderCharacterId;
 	}
 
 	public UUID getId() {
@@ -57,5 +72,9 @@ public final class StoredMail {
 
 	public long getDeliveryTime() {
 		return deliveryTime;
+	}
+
+	public String getSenderCharacterId() {
+		return senderCharacterId;
 	}
 }

@@ -67,6 +67,21 @@ public final class MailDelivery {
 		});
 	}
 
+	/**
+	 * Hands back a sent letter that its recipient never received. {@code recipientDied} names the reason;
+	 * letters returned to an account say only that they were returned.
+	 */
+	public void returnToSender(Player owner, ItemStack letter, boolean recipientDied) {
+		if (owner == null || letter == null) {
+			return;
+		}
+		ItemGive.giveOrDrop(owner, letter.clone());
+		notifyQuietly(() -> {
+			owner.sendMessage(recipientDied ? config.msgReturnedRecipientDied() : config.msgReturnedToSender());
+			owner.playSound(owner.getLocation(), Sound.ENTITY_PARROT_FLY, 1f, 1f);
+		});
+	}
+
 	private static void notifyQuietly(Runnable notification) {
 		try {
 			notification.run();

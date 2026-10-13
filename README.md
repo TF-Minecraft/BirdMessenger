@@ -13,6 +13,7 @@ BirdMessenger turns written correspondence into an in-world activity. Players se
 - **Travel time** — delivery time follows the distance to the recipient's character location, with an estimated arrival shown to the sender.
 - **Pending deliveries** — letters wait until their recipient is online and using the correct character; in-flight mail resumes after a restart.
 - **Delivery feedback** — sender and recipient receive messages and bird-themed sound feedback as correspondence progresses.
+- **Letters after a death** — letters waiting for a dead character go to their will heir, or back to whoever wrote them.
 - **Optional Discord notices** — TFMCWeb integration can notify linked recipients when a letter's flight completes.
 
 The mailbox interaction protects against accidental ordinary left-click breaking, while deliberate sneak-breaking remains available. Sending, recipient selection, and confirmation all happen in game, keeping correspondence close to the roleplay world.
@@ -28,8 +29,8 @@ Technical documentation is maintained in [TF-Minecraft/Docs](https://github.com/
 With Java 21 and the [build dependencies](https://github.com/TF-Minecraft/Docs/blob/main/projects/BirdMessenger/README.md#build-and-dependencies) prepared,
 run `mvn clean verify`.
 
-JUnit 5 and Mockito cover letters, recipient selection, delivery, persistence and
-plugin boundaries without starting a live Minecraft server.
+JUnit 5 and Mockito cover letters, recipient selection, delivery, persistence, estates
+and plugin boundaries without starting a live Minecraft server.
 `mvn clean verify` requires 100% production line coverage with no class or package
 exclusions. JaCoCo writes `target/site/jacoco/index.html` and
 `target/site/jacoco/jacoco.xml`; Surefire results are in `target/surefire-reports/`.
