@@ -23,6 +23,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
+import net.tfminecraft.birdmessenger.util.DurableFiles;
 import net.tfminecraft.tlibs.character.CharacterRef;
 
 public final class MailStore {
@@ -191,9 +192,11 @@ public final class MailStore {
 
 	/**
 	 * This character's waiting letters, each with a stored ID. Letters queued before IDs were kept are
-	 * given one and saved first, so a move interrupted between files can be recognised.
+	 * given one and saved first, so a move interrupted between files can be recognised. Throws, with
+	 * nothing changed, when that save fails.
 	 */
-	public List<PendingLetter> identifyPending(String characterId) {
+	public List<PendingLetter> identifyPending(String characterId) throws IOException {
+		Map<String, List<PendingLetter>> before = snapshot(pending);
 		boolean changed = false;
 		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
 			if (!entry.getKey().equalsIgnoreCase(characterId)) {
@@ -209,22 +212,34 @@ public final class MailStore {
 			}
 		}
 		if (changed) {
-			savePending();
+			try {
+				writePending();
+			} catch (IOException | RuntimeException failure) {
+				restore(pending, before);
+				throw failure;
+			}
 		}
 		return pendingFor(characterId);
 	}
 
 	/**
-	 * Moves the named letters out of the dead character's queue. Letters for an account queue are saved
-	 * there before the character queue drops them; {@link #load()} discards a copy left behind by a crash
-	 * in between. Returns the IDs moved now.
+	 * Moves the named letters out of the dead character's queue, all or nothing. Every receiving queue is
+	 * checked first. Letters for an account queue are saved there before the character queue drops them;
+	 * {@link #load()} discards a copy left behind by a crash in between. A failed save puts both queues
+	 * back as they were in memory and throws. Returns the IDs moved now.
 	 */
-	public List<UUID> moveEstateLetters(String characterId, List<Move> moves) {
+	public List<UUID> moveEstateLetters(String characterId, List<Move> moves) throws IOException {
 		requireRecovered(pendingFile);
 		requireRecovered(returnedFile);
 		Map<UUID, Move> byId = new LinkedHashMap<>();
 		for (Move move : moves) {
 			byId.put(move.letterId(), move);
+			if (move.destination() != Destination.SENDER_ACCOUNT) {
+				List<PendingLetter> queue = pending.get(move.characterId());
+				if (queue != null && !queue.getFirst().ownerUuid.equals(move.ownerUuid())) {
+					throw new IllegalStateException("Pending queue of " + move.characterId() + " belongs to another owner");
+				}
+			}
 		}
 		List<PendingLetter> taken = new ArrayList<>();
 		for (PendingLetter letter : pendingFor(characterId)) {
@@ -235,39 +250,55 @@ public final class MailStore {
 		if (taken.isEmpty()) {
 			return List.of();
 		}
-		boolean toAccounts = false;
-		for (PendingLetter letter : taken) {
-			Move move = byId.get(letter.id);
-			if (move.destination() == Destination.SENDER_ACCOUNT) {
-				returned.computeIfAbsent(move.ownerUuid(), ignored -> new ArrayList<>())
-						.add(letter.copy(letter.id, move.ownerUuid()));
-				toAccounts = true;
+		Map<String, List<PendingLetter>> pendingBefore = snapshot(pending);
+		Map<UUID, List<PendingLetter>> returnedBefore = snapshot(returned);
+		try {
+			boolean toAccounts = false;
+			List<UUID> moved = new ArrayList<>();
+			for (PendingLetter letter : taken) {
+				Move move = byId.get(letter.id);
+				switch (move.destination()) {
+					case SENDER_ACCOUNT -> {
+						returned.computeIfAbsent(move.ownerUuid(), ignored -> new ArrayList<>())
+								.add(letter.copy(letter.id, move.ownerUuid()));
+						toAccounts = true;
+					}
+					case HEIR -> enqueue(move.characterId(), new PendingLetter(letter.id, move.ownerUuid(),
+							letter.senderUuid, letter.senderCharacterId, "", letter.item.clone(), false, false));
+					case SENDER_CHARACTER -> enqueue(move.characterId(), new PendingLetter(letter.id, move.ownerUuid(),
+							letter.senderUuid, letter.senderCharacterId, letter.addresseeDisplayTab, letter.item.clone(),
+							false, true));
+				}
+				moved.add(letter.id);
 			}
-		}
-		if (toAccounts) {
-			saveReturned();
-		}
-		List<UUID> moved = new ArrayList<>();
-		for (PendingLetter letter : taken) {
-			Move move = byId.get(letter.id);
-			if (move.destination() == Destination.HEIR) {
-				enqueue(move.characterId(), new PendingLetter(letter.id, move.ownerUuid(), letter.senderUuid,
-						letter.senderCharacterId, "", letter.item, false, false));
-			} else if (move.destination() == Destination.SENDER_CHARACTER) {
-				enqueue(move.characterId(), new PendingLetter(letter.id, move.ownerUuid(), letter.senderUuid,
-						letter.senderCharacterId, letter.addresseeDisplayTab, letter.item, false, true));
+			pending.entrySet().removeIf(entry -> {
+				if (!entry.getKey().equalsIgnoreCase(characterId)) {
+					return false;
+				}
+				entry.getValue().removeIf(letter -> letter.id != null && byId.containsKey(letter.id));
+				return entry.getValue().isEmpty();
+			});
+			if (toAccounts) {
+				writeReturned();
 			}
-			moved.add(letter.id);
+			writePending();
+			return moved;
+		} catch (IOException | RuntimeException failure) {
+			restore(pending, pendingBefore);
+			restore(returned, returnedBefore);
+			throw failure;
 		}
-		pending.entrySet().removeIf(entry -> {
-			if (!entry.getKey().equalsIgnoreCase(characterId)) {
-				return false;
-			}
-			entry.getValue().removeIf(letter -> letter.id != null && byId.containsKey(letter.id));
-			return entry.getValue().isEmpty();
-		});
-		savePending();
-		return moved;
+	}
+
+	private static <K> Map<K, List<PendingLetter>> snapshot(Map<K, List<PendingLetter>> queues) {
+		Map<K, List<PendingLetter>> copy = new LinkedHashMap<>();
+		queues.forEach((key, letters) -> copy.put(key, new ArrayList<>(letters)));
+		return copy;
+	}
+
+	private static <K> void restore(Map<K, List<PendingLetter>> queues, Map<K, List<PendingLetter>> snapshot) {
+		queues.clear();
+		queues.putAll(snapshot);
 	}
 
 	/**
@@ -347,7 +378,7 @@ public final class MailStore {
 			config.set(path + ".item", mail.getItem().serialize());
 		}
 		try {
-			config.save(inFlightFile);
+			DurableFiles.write(inFlightFile.toPath(), config.saveToString());
 		} catch (IOException ex) {
 			plugin.getLogger().log(Level.SEVERE, "Could not save in-flight mail", ex);
 		}
@@ -411,6 +442,14 @@ public final class MailStore {
 	}
 
 	private void savePending() {
+		try {
+			writePending();
+		} catch (IOException ex) {
+			plugin.getLogger().log(Level.SEVERE, "Could not save pending mail", ex);
+		}
+	}
+
+	private void writePending() throws IOException {
 		requireRecovered(pendingFile);
 		FileConfiguration config = new YamlConfiguration();
 		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
@@ -419,11 +458,7 @@ public final class MailStore {
 			config.set(path + ".owner", letters.get(0).ownerUuid.toString());
 			config.set(path + ".letters", letterMaps(letters));
 		}
-		try {
-			config.save(pendingFile);
-		} catch (IOException ex) {
-			plugin.getLogger().log(Level.SEVERE, "Could not save pending mail", ex);
-		}
+		DurableFiles.write(pendingFile.toPath(), config.saveToString());
 	}
 
 	private static List<Map<String, Object>> letterMaps(List<PendingLetter> letters) {
@@ -455,16 +490,20 @@ public final class MailStore {
 	}
 
 	private void saveReturned() {
+		try {
+			writeReturned();
+		} catch (IOException ex) {
+			plugin.getLogger().log(Level.SEVERE, "Could not save returned mail", ex);
+		}
+	}
+
+	private void writeReturned() throws IOException {
 		requireRecovered(returnedFile);
 		FileConfiguration config = new YamlConfiguration();
 		for (Map.Entry<UUID, List<PendingLetter>> entry : returned.entrySet()) {
 			config.set("accounts." + entry.getKey() + ".letters", letterMaps(entry.getValue()));
 		}
-		try {
-			config.save(returnedFile);
-		} catch (IOException ex) {
-			plugin.getLogger().log(Level.SEVERE, "Could not save returned mail", ex);
-		}
+		DurableFiles.write(returnedFile.toPath(), config.saveToString());
 	}
 
 	@SuppressWarnings("unchecked")
