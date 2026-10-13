@@ -26,6 +26,8 @@ import org.bukkit.plugin.PluginLoader;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.junit.jupiter.api.Test;
+import net.tfminecraft.birdmessenger.estate.EstateProbe;
+import net.tfminecraft.birdmessenger.estate.LetterEstate;
 import org.junit.jupiter.api.io.TempDir;
 
 class PluginLifecycleCoverageTest {
@@ -78,6 +80,8 @@ class PluginLifecycleCoverageTest {
       plugin.onDisable();
       try (var bukkit = mockStatic(Bukkit.class);
           var characters = mockStatic(net.tfminecraft.tlibs.character.Characters.class);
+          var probe = mockStatic(EstateProbe.class);
+          var estates = mockStatic(LetterEstate.class);
           var features =
               mockConstruction(
                   LetterFeature.class,
@@ -92,7 +96,15 @@ class PluginLifecycleCoverageTest {
                   (service, context) ->
                       when(service.store()).thenReturn(stores.constructed().getFirst()))) {
         bukkit.when(Bukkit::getPluginManager).thenReturn(manager);
+        // Scenario 0 runs on TLibs with the estate API, the others on an older TLibs.
+        probe.when(() -> EstateProbe.available(any(String[].class))).thenReturn(scenario == 0);
         plugin.onEnable();
+        if (scenario == 0) {
+          estates.verify(() -> LetterEstate.start(plugin, stores.constructed().getFirst()));
+        } else {
+          estates.verifyNoInteractions();
+          verify(logger).warning(contains("no estate API"));
+        }
         assertNotNull(plugin.config());
         assertNotNull(plugin.sessions());
         assertSame(services.constructed().getFirst(), plugin.mail());

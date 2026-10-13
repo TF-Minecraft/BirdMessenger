@@ -7,6 +7,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import net.tfminecraft.rpcharacters.RPCharacters;
 import net.tfminecraft.birdmessenger.command.BirdMessengerCommand;
 import net.tfminecraft.birdmessenger.gui.CharacterPickerGui;
+import net.tfminecraft.birdmessenger.estate.EstateProbe;
+import net.tfminecraft.birdmessenger.estate.LetterEstate;
 import net.tfminecraft.birdmessenger.listener.CoopListener;
 import net.tfminecraft.birdmessenger.listener.CoopFurnitureListener;
 import net.tfminecraft.birdmessenger.listener.GuiListener;
@@ -48,6 +50,11 @@ public final class BirdMessenger extends JavaPlugin {
 		MailStore store = new MailStore(this);
 		store.load();
 		mail = new MailService(this, store);
+		if (EstateProbe.available(EstateProbe.CLASSES)) {
+			LetterEstate.start(this, store);
+		} else {
+			getLogger().warning("TLibs has no estate API (2.6.0 or later); letters for dead characters keep waiting.");
+		}
 		Bukkit.getPluginManager().registerEvents(new CoopListener(this), this);
 		if (Bukkit.getPluginManager().getPlugin("ItemsAdder") != null) {
 			Bukkit.getPluginManager().registerEvents(new CoopFurnitureListener(this), this);
