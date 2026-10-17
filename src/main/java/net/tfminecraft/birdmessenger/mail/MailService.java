@@ -119,6 +119,7 @@ public final class MailService {
 		if (!store.inFlight().isEmpty()) {
 			plugin.getLogger().info("Resumed " + store.inFlight().size() + " in-flight letter(s).");
 		}
+		Bukkit.getScheduler().runTaskTimer(plugin, this::flushPendingForOnlinePlayers, 20L, 20L);
 	}
 
 	public void flushPendingForOnlinePlayers() {
@@ -134,7 +135,8 @@ public final class MailService {
 		if (!SendSession.isCurrent(owner, session)) {
 			return;
 		}
-		store.drainPending(session.ref(), () -> SendSession.isCurrent(owner, session), pending -> {
+		store.drainPending(session.ref(), () -> SendSession.isCurrent(owner, session),
+				pending -> MailDelivery.hasRoom(owner, pending.item), pending -> {
 			if (pending.returned) {
 				delivery.returnUnsent(owner, pending.item);
 			} else if (pending.recipientDied) {
@@ -145,6 +147,7 @@ public final class MailService {
 		});
 		// Letters returned to the account, whichever of its characters is played.
 		store.drainReturned(session.ref().ownerId(), () -> SendSession.isCurrent(owner, session),
+				pending -> MailDelivery.hasRoom(owner, pending.item),
 				pending -> delivery.returnToSender(owner, pending.item, false));
 	}
 
@@ -163,7 +166,8 @@ public final class MailService {
 			return;
 		}
 		Player owner = Bukkit.getPlayer(mail.getOwnerUuid());
-		if (owner != null && owner.isOnline() && MailDelivery.isActiveCharacter(owner, mail.getCharacterId())) {
+		if (owner != null && owner.isOnline() && MailDelivery.isActiveCharacter(owner, mail.getCharacterId())
+				&& MailDelivery.hasRoom(owner, mail.getItem())) {
 			store.removeInFlight(mail.getId());
 			delivery.deliver(owner, mail);
 			DiscordNotifyService.notifyFlightComplete(plugin, mail);

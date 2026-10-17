@@ -348,6 +348,26 @@ class MailStoreCoverageTest {
   }
 
   @Test
+  void rejectedCapacityKeepsTheWholeLetterSavedAndStopsTheBatch() {
+    MailStore store = new MailStore(plugin);
+    store.addPending(CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "A", item(serializedItem("A"))));
+    store.addPending(CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "B", item(serializedItem("B"))));
+    List<MailStore.PendingLetter> handed = new ArrayList<>();
+    store.drainPending(REF, () -> true, letter -> false, handed::add);
+    assertTrue(handed.isEmpty());
+    assertEquals(2, savedLetters());
+    MailStore restored = new MailStore(plugin);
+    restored.load();
+    restored.drainPending(REF, () -> true, letter -> letter.addresseeDisplayTab.equals("A"), handed::add);
+    assertEquals(1, handed.size());
+    assertEquals(1, savedLetters());
+    assertEquals("B", restored.pendingFor(CHARACTER).getFirst().addresseeDisplayTab);
+    restored.load();
+    restored.drainPending(REF, () -> true, handed::add);
+    assertEquals(List.of("A", "B"), handed.stream().map(letter -> letter.addresseeDisplayTab).toList());
+  }
+
+  @Test
   void failedHandOverPutsTheLetterBackAtTheHeadOfItsQueue() {
     MailStore store = new MailStore(plugin);
     store.addPending(CHARACTER, new MailStore.PendingLetter(OWNER, SENDER, "A", item(serializedItem("A"))));

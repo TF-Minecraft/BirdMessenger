@@ -23,6 +23,24 @@ public final class MailDelivery {
 		this.config = config;
 	}
 
+	/** Checks storage slots without adding items or counting armour and offhand slots. */
+	public static boolean hasRoom(Player owner, ItemStack letter) {
+		var inventory = owner.getInventory();
+		int remaining = letter.getAmount();
+		int stackLimit = Math.min(letter.getMaxStackSize(), inventory.getMaxStackSize());
+		for (ItemStack slot : inventory.getStorageContents()) {
+			if (slot == null || slot.getType().isAir()) {
+				remaining -= stackLimit;
+			} else if (letter.isSimilar(slot)) {
+				remaining -= Math.max(0, stackLimit - slot.getAmount());
+			}
+			if (remaining <= 0) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public static boolean isActiveCharacter(Player owner, String characterId) {
 		if (owner == null || characterId == null) {
 			return false;
