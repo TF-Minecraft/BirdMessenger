@@ -39,6 +39,85 @@ import org.mockito.ArgumentCaptor;
 
 class MailServiceCoverageTest {
   @Test
+  void arrivingMailWaitsWhenTheRecipientIsDeadDespiteAnActiveSessionAndEmptyInventory() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      when(f.owner.isDead()).thenReturn(true);
+      StoredMail mail = f.mail(0);
+      f.inFlight.put(mail.getId(), mail);
+
+      f.service.resume();
+
+      verify(f.store).addPending(mail);
+      assertTrue(f.inFlight.isEmpty());
+      verifyNoInteractions(f.delivery);
+    }
+  }
+
+  @Test
+  void automaticRetryLeavesMailAndCharacterReturnsQueuedUntilRespawn() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      when(f.owner.isDead()).thenReturn(true);
+      f.bukkit.when(Bukkit::getOnlinePlayers).thenReturn(List.of(f.owner));
+      ItemStack mail = mock(ItemStack.class);
+      ItemStack unsent = mock(ItemStack.class);
+      ItemStack estate = mock(ItemStack.class);
+      f.queuePending(new MailStore.PendingLetter(f.ownerId, f.senderId, "Recipient", mail));
+      f.queuePending(MailStore.PendingLetter.returned(f.ownerId, unsent));
+      f.queuePending(new MailStore.PendingLetter(UUID.randomUUID(), f.ownerId, f.senderId,
+          f.origin.ref().characterId().toString(), "Recipient", estate, false, true));
+      f.service.resume();
+      ArgumentCaptor<Runnable> retry = ArgumentCaptor.forClass(Runnable.class);
+      verify(f.scheduler).runTaskTimer(eq(f.plugin), retry.capture(), eq(20L), eq(20L));
+
+      retry.getValue().run();
+      retry.getValue().run();
+      assertEquals(3, f.pending.get(f.ownerSession.ref()).size());
+      verifyNoInteractions(f.delivery);
+
+      when(f.owner.isDead()).thenReturn(false);
+      retry.getValue().run();
+      retry.getValue().run();
+      assertTrue(f.pending.get(f.ownerSession.ref()).isEmpty());
+      verify(f.delivery, times(1)).deliver(f.owner, mail, f.senderId, "Recipient");
+      verify(f.delivery, times(1)).returnUnsent(f.owner, unsent);
+      verify(f.delivery, times(1)).returnToSender(f.owner, estate, true);
+      verifyNoMoreInteractions(f.delivery);
+    }
+  }
+
+  @Test
+  void accountReturnsRemainQueuedWhileDeadAndArriveOnceAfterRespawn() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      when(f.owner.isDead()).thenReturn(true);
+      ItemStack item = mock(ItemStack.class);
+      Deque<MailStore.PendingLetter> returned = new ArrayDeque<>(List.of(
+          new MailStore.PendingLetter(f.ownerId, f.senderId, "", item)));
+      doAnswer(call -> {
+        BooleanSupplier current = call.getArgument(1);
+        Predicate<MailStore.PendingLetter> accepts = call.getArgument(2);
+        Consumer<MailStore.PendingLetter> deliver = call.getArgument(3);
+        while (current.getAsBoolean() && !returned.isEmpty() && accepts.test(returned.getFirst())) {
+          deliver.accept(returned.removeFirst());
+        }
+        return null;
+      }).when(f.store).drainReturned(eq(f.ownerId), any(), any(), any());
+
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      assertEquals(1, returned.size());
+      verifyNoInteractions(f.delivery);
+
+      when(f.owner.isDead()).thenReturn(false);
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      assertTrue(returned.isEmpty());
+      verify(f.delivery, times(1)).returnToSender(f.owner, item, false);
+    }
+  }
+
+  @Test
   void anOversizedLetterWaitsEvenWhenOneSlotIsEmpty() {
     try (Fixture f = new Fixture()) {
       f.activeOwner();
