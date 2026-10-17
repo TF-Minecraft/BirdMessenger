@@ -135,8 +135,8 @@ public final class MailService {
 		if (!SendSession.isCurrent(owner, session)) {
 			return;
 		}
-		store.drainPending(session.ref(),
-				() -> SendSession.isCurrent(owner, session) && owner.getInventory().firstEmpty() != -1, pending -> {
+		store.drainPending(session.ref(), () -> SendSession.isCurrent(owner, session),
+				pending -> MailDelivery.hasRoom(owner, pending.item), pending -> {
 			if (pending.returned) {
 				delivery.returnUnsent(owner, pending.item);
 			} else if (pending.recipientDied) {
@@ -146,8 +146,8 @@ public final class MailService {
 			}
 		});
 		// Letters returned to the account, whichever of its characters is played.
-		store.drainReturned(session.ref().ownerId(),
-				() -> SendSession.isCurrent(owner, session) && owner.getInventory().firstEmpty() != -1,
+		store.drainReturned(session.ref().ownerId(), () -> SendSession.isCurrent(owner, session),
+				pending -> MailDelivery.hasRoom(owner, pending.item),
 				pending -> delivery.returnToSender(owner, pending.item, false));
 	}
 
@@ -167,7 +167,7 @@ public final class MailService {
 		}
 		Player owner = Bukkit.getPlayer(mail.getOwnerUuid());
 		if (owner != null && owner.isOnline() && MailDelivery.isActiveCharacter(owner, mail.getCharacterId())
-				&& owner.getInventory().firstEmpty() != -1) {
+				&& MailDelivery.hasRoom(owner, mail.getItem())) {
 			store.removeInFlight(mail.getId());
 			delivery.deliver(owner, mail);
 			DiscordNotifyService.notifyFlightComplete(plugin, mail);

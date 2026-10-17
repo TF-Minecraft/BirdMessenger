@@ -22,6 +22,45 @@ import org.junit.jupiter.api.Test;
 
 class DeliverySessionCoverageTest {
   @Test
+  void deliveryRequiresRoomForTheCompleteStackWithoutChangingTheInventory() {
+    Player player = mock(Player.class);
+    PlayerInventory inventory = mock(PlayerInventory.class);
+    when(player.getInventory()).thenReturn(inventory);
+    when(inventory.getMaxStackSize()).thenReturn(64);
+    ItemStack letter = mock(ItemStack.class);
+    when(letter.getAmount()).thenReturn(2);
+    when(letter.getMaxStackSize()).thenReturn(1);
+    when(inventory.getStorageContents()).thenReturn(new ItemStack[1]);
+    assertFalse(MailDelivery.hasRoom(player, letter));
+    when(inventory.getStorageContents()).thenReturn(new ItemStack[2]);
+    assertTrue(MailDelivery.hasRoom(player, letter));
+
+    ItemStack partial = mock(ItemStack.class);
+    Material material = mock(Material.class);
+    when(partial.getType()).thenReturn(material);
+    when(partial.getAmount()).thenReturn(63);
+    when(letter.isSimilar(partial)).thenReturn(true);
+    when(letter.getMaxStackSize()).thenReturn(64);
+    when(letter.getAmount()).thenReturn(65);
+    when(inventory.getStorageContents()).thenReturn(new ItemStack[] {partial, null});
+    assertTrue(MailDelivery.hasRoom(player, letter));
+    when(letter.getAmount()).thenReturn(66);
+    assertFalse(MailDelivery.hasRoom(player, letter));
+    when(letter.getAmount()).thenReturn(65);
+    when(letter.isSimilar(partial)).thenReturn(false);
+    assertFalse(MailDelivery.hasRoom(player, letter));
+    when(material.isAir()).thenReturn(true);
+    assertTrue(MailDelivery.hasRoom(player, letter));
+
+    when(inventory.getMaxStackSize()).thenReturn(16);
+    when(letter.getAmount()).thenReturn(17);
+    when(inventory.getStorageContents()).thenReturn(new ItemStack[1]);
+    assertFalse(MailDelivery.hasRoom(player, letter));
+    verify(inventory, never()).addItem(any(ItemStack.class));
+    verify(player, never()).getWorld();
+  }
+
+  @Test
   void inventoryOverflowDropsOnlyReturnedLeftovers() {
     Player player = mock(Player.class);
     PlayerInventory inventory = mock(PlayerInventory.class);

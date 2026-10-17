@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 
 import org.bukkit.configuration.ConfigurationSection;
@@ -59,13 +60,19 @@ public final class MailStore {
 	 * goes back to the head of its queue if the hand-over throws.
 	 */
 	public void drainPending(CharacterRef ref, BooleanSupplier current, Consumer<PendingLetter> deliver) {
+		drainPending(ref, current, letter -> true, deliver);
+	}
+
+	/** Leaves the next letter queued when its complete stack cannot be accepted. */
+	public void drainPending(CharacterRef ref, BooleanSupplier current, Predicate<PendingLetter> accepts,
+			Consumer<PendingLetter> deliver) {
 		if (ref == null) {
 			return;
 		}
 		boolean taken = false;
 		try {
 			while (current.getAsBoolean()) {
-				Taken next = removePending(ref);
+				Taken next = removePending(ref, accepts);
 				if (next == null) {
 					return;
 				}
@@ -87,7 +94,7 @@ public final class MailStore {
 	private record Taken(String key, PendingLetter letter) {
 	}
 
-	private Taken removePending(CharacterRef ref) {
+	private Taken removePending(CharacterRef ref, Predicate<PendingLetter> accepts) {
 		String characterId = ref.characterId().toString();
 		for (Map.Entry<String, List<PendingLetter>> entry : pending.entrySet()) {
 			if (!entry.getKey().equalsIgnoreCase(characterId)) {
@@ -97,6 +104,9 @@ public final class MailStore {
 			for (int i = 0; i < letters.size(); i++) {
 				if (!ref.ownerId().equals(letters.get(i).ownerUuid)) {
 					continue;
+				}
+				if (!accepts.test(letters.get(i))) {
+					return null;
 				}
 				requireRecovered(pendingFile);
 				PendingLetter letter = letters.remove(i);
@@ -306,6 +316,12 @@ public final class MailStore {
 	 * once. A letter goes back to the head of the queue if the hand-over throws.
 	 */
 	public void drainReturned(UUID account, BooleanSupplier current, Consumer<PendingLetter> deliver) {
+		drainReturned(account, current, letter -> true, deliver);
+	}
+
+	/** Leaves the next returned letter queued until its complete stack can be accepted. */
+	public void drainReturned(UUID account, BooleanSupplier current, Predicate<PendingLetter> accepts,
+			Consumer<PendingLetter> deliver) {
 		if (account == null) {
 			return;
 		}
@@ -314,6 +330,9 @@ public final class MailStore {
 			while (current.getAsBoolean()) {
 				List<PendingLetter> letters = returned.get(account);
 				if (letters == null) {
+					return;
+				}
+				if (!accepts.test(letters.getFirst())) {
 					return;
 				}
 				requireRecovered(returnedFile);

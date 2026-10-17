@@ -146,7 +146,9 @@ class EstateMailStoreTest {
     restored.drainReturned(UUID.randomUUID(), () -> true, handed::add);
     restored.drainReturned(null, () -> true, handed::add);
     restored.drainReturned(WRITER.ownerId(), () -> false, handed::add);
+    restored.drainReturned(WRITER.ownerId(), () -> true, letter -> false, handed::add);
     assertEquals(List.of(), handed);
+    restored = reload();
     restored.drainReturned(WRITER.ownerId(), () -> true, handed::add);
     assertEquals(1, handed.size());
     assertEquals(letters.getFirst().id, handed.getFirst().id);
