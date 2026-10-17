@@ -28,6 +28,7 @@ import net.tfminecraft.tlibs.character.Characters;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,109 @@ import org.mockito.MockedStatic;
 import org.mockito.ArgumentCaptor;
 
 class MailServiceCoverageTest {
+  @Test
+  void fullRecipientInventoryQueuesArrivingMailUntilTheAutomaticRetryFindsRoom() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      when(f.inventory.firstEmpty()).thenReturn(-1);
+      f.bukkit.when(Bukkit::getOnlinePlayers).thenReturn(List.of(f.owner));
+      StoredMail mail = f.mail(0);
+      f.inFlight.put(mail.getId(), mail);
+      doAnswer(call -> {
+        StoredMail queued = call.getArgument(0);
+        f.queuePending(new MailStore.PendingLetter(queued.getId(), queued.getOwnerUuid(),
+            queued.getSenderUuid(), queued.getSenderCharacterId(), queued.getAddresseeDisplayTab(),
+            queued.getItem(), false, false));
+        return null;
+      }).when(f.store).addPending(any(StoredMail.class));
+
+      f.service.resume();
+
+      var order = inOrder(f.store);
+      order.verify(f.store).addPending(mail);
+      order.verify(f.store).removeInFlight(mail.getId());
+      assertTrue(f.inFlight.isEmpty());
+      verifyNoInteractions(f.delivery);
+      ArgumentCaptor<Runnable> retry = ArgumentCaptor.forClass(Runnable.class);
+      verify(f.scheduler).runTaskTimer(eq(f.plugin), retry.capture(), eq(20L), eq(20L));
+      retry.getValue().run();
+      assertEquals(1, f.pending.get(f.ownerSession.ref()).size());
+      verifyNoInteractions(f.delivery);
+
+      when(f.inventory.firstEmpty()).thenReturn(0);
+      retry.getValue().run();
+      retry.getValue().run();
+
+      assertTrue(f.pending.get(f.ownerSession.ref()).isEmpty());
+      verify(f.delivery, times(1)).deliver(f.owner, mail.getItem(), f.senderId, "Recipient");
+      verifyNoMoreInteractions(f.delivery);
+      f.give.verifyNoInteractions();
+    }
+  }
+
+  @Test
+  void pendingBatchStopsWhenTheLastFreeSlotIsFilledAndResumesWithoutDuplicates() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      ItemStack first = mock(ItemStack.class);
+      ItemStack second = mock(ItemStack.class);
+      f.queuePending(new MailStore.PendingLetter(f.ownerId, f.senderId, "First", first));
+      f.queuePending(new MailStore.PendingLetter(f.ownerId, f.senderId, "Second", second));
+      doAnswer(call -> {
+        when(f.inventory.firstEmpty()).thenReturn(-1);
+        return null;
+      }).when(f.delivery).deliver(f.owner, first, f.senderId, "First");
+
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+
+      verify(f.delivery, times(1)).deliver(f.owner, first, f.senderId, "First");
+      verify(f.delivery, never()).deliver(f.owner, second, f.senderId, "Second");
+      assertSame(second, f.pending.get(f.ownerSession.ref()).getFirst().item);
+
+      when(f.inventory.firstEmpty()).thenReturn(0);
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      assertTrue(f.pending.get(f.ownerSession.ref()).isEmpty());
+      verify(f.delivery, times(1)).deliver(f.owner, second, f.senderId, "Second");
+    }
+  }
+
+  @Test
+  void accountReturnsAlsoWaitForRoomAndStopWhenTheInventoryFills() {
+    try (Fixture f = new Fixture()) {
+      f.activeOwner();
+      when(f.inventory.firstEmpty()).thenReturn(-1);
+      ItemStack first = mock(ItemStack.class);
+      ItemStack second = mock(ItemStack.class);
+      Deque<MailStore.PendingLetter> returned = new ArrayDeque<>(List.of(
+          new MailStore.PendingLetter(f.ownerId, f.senderId, "", first),
+          new MailStore.PendingLetter(f.ownerId, f.senderId, "", second)));
+      doAnswer(call -> {
+        BooleanSupplier ready = call.getArgument(1);
+        Consumer<MailStore.PendingLetter> deliver = call.getArgument(2);
+        while (ready.getAsBoolean() && !returned.isEmpty()) deliver.accept(returned.removeFirst());
+        return null;
+      }).when(f.store).drainReturned(eq(f.ownerId), any(), any());
+      doAnswer(call -> {
+        when(f.inventory.firstEmpty()).thenReturn(-1);
+        return null;
+      }).when(f.delivery).returnToSender(f.owner, first, false);
+
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      assertEquals(2, returned.size());
+      verifyNoInteractions(f.delivery);
+      when(f.inventory.firstEmpty()).thenReturn(0);
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      assertEquals(1, returned.size());
+      verify(f.delivery, times(1)).returnToSender(f.owner, first, false);
+      verify(f.delivery, never()).returnToSender(f.owner, second, false);
+      when(f.inventory.firstEmpty()).thenReturn(0);
+      f.service.tryDeliverPending(f.owner, f.ownerSession);
+      assertTrue(returned.isEmpty());
+      verify(f.delivery, times(1)).returnToSender(f.owner, second, false);
+    }
+  }
+
   @Test
   void acceptedMailOwnsACloneAndScheduledCompletionIsIdempotent() {
     try (Fixture f = new Fixture()) {
@@ -530,6 +634,7 @@ class MailServiceCoverageTest {
         new CharacterSession(new CharacterRef(ownerId, characterId), 2L);
     final Player sender = mock(Player.class);
     final Player owner = mock(Player.class);
+    final PlayerInventory inventory = mock(PlayerInventory.class);
     final SelectedTarget target =
         new SelectedTarget(ownerId, characterId.toString(), "Recipient", "Recipient", null, null);
     final Map<UUID, StoredMail> inFlight = new HashMap<>();
@@ -552,7 +657,9 @@ class MailServiceCoverageTest {
       when(plugin.getLogger()).thenReturn(logger);
       when(sender.getUniqueId()).thenReturn(senderId);
       when(sender.isOnline()).thenReturn(true);
+      when(sender.getInventory()).thenReturn(mock(PlayerInventory.class));
       when(owner.getUniqueId()).thenReturn(ownerId);
+      when(owner.getInventory()).thenReturn(inventory);
       when(config.msgCannotSendToSelf()).thenReturn("Self forbidden");
       when(config.msgRecipientUnavailable()).thenReturn("Unavailable");
       when(config.msgDifferentWorld()).thenReturn("Different world");
