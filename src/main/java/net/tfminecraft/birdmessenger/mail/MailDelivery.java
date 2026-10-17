@@ -25,6 +25,10 @@ public final class MailDelivery {
 
 	/** Checks storage slots without adding items or counting armour and offhand slots. */
 	public static boolean hasRoom(Player owner, ItemStack letter) {
+		// Respawning can discard anything given to the dead player's inventory.
+		if (owner.isDead()) {
+			return false;
+		}
 		var inventory = owner.getInventory();
 		int remaining = letter.getAmount();
 		int stackLimit = Math.min(letter.getMaxStackSize(), inventory.getMaxStackSize());
