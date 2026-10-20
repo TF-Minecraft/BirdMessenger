@@ -4,15 +4,16 @@ import java.util.HashMap;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.block.Block;
+import org.bukkit.Statistic;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerEditBookEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerStatisticIncrementEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.BookMeta;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
@@ -78,23 +79,26 @@ public class LetterListener implements Listener {
         });
     }
 
-    @EventHandler
-    public void onBookOpen(PlayerInteractEvent event) {
-        Action action = event.getAction();
-        if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) return;
-        Block clicked = event.getClickedBlock();
-        if (clicked != null && (clicked.getType() == Material.CHISELED_BOOKSHELF || clicked.getType() == Material.LECTERN)) return;
-        // No guard on which hand was used - off-hand letters open too - but the swap below
-        // must go back into that same hand, or the other hand's item gets overwritten.
-        EquipmentSlot hand = event.getHand();
-        if (hand != EquipmentSlot.HAND && hand != EquipmentSlot.OFF_HAND) return;
-        ItemStack item = event.getItem();
+    // Not ignoreCancelled: a cancelled count still means the book opened.
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onBookOpen(PlayerStatisticIncrementEvent event) {
+        // Vanilla counts a written book as used right after it opens the reading screen,
+        // and nowhere else. Clicks that open a barrel, use a door, place the book on a
+        // lectern or are denied by another plugin never reach this, so the seal holds.
+        if (event.getStatistic() != Statistic.USE_ITEM || event.getMaterial() != Material.WRITTEN_BOOK) return;
+        Player player = event.getPlayer();
+        PlayerInventory inventory = player.getInventory();
+        // The client only tries the off hand when the main hand item does nothing, and a
+        // written book always opens, so a main-hand written book is the one being read.
+        // The swap below must go back into that same hand, or the other hand's item gets overwritten.
+        ItemStack mainHand = inventory.getItemInMainHand();
+        EquipmentSlot hand = mainHand.getType() == Material.WRITTEN_BOOK ? EquipmentSlot.HAND : EquipmentSlot.OFF_HAND;
+        ItemStack item = hand == EquipmentSlot.HAND ? mainHand : inventory.getItemInOffHand();
         if (!items.isSealedLetter(item)) return;
         ItemStack original = item.clone();
         BookMeta current = (BookMeta) item.getItemMeta();
         if (current == null) return;
 
-        Player player = event.getPlayer();
         CharacterSession session = Characters.currentSession(player).orElse(null);
         if (session == null && Characters.available()) return;
         ItemStack opened = items.createOpenedLetter(current);
@@ -103,16 +107,16 @@ public class LetterListener implements Listener {
             sendMessage(player, LetterConfig.openFailedMessage);
             return;
         }
-        // Not cancelled - the book still opens for reading, so swap the item on the next tick.
+        // The book is already open for reading, so swap the item on the next tick.
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (!isCurrent(player, session)) return;
             ItemStack held = hand == EquipmentSlot.OFF_HAND
-                    ? player.getInventory().getItemInOffHand() : player.getInventory().getItemInMainHand();
+                    ? inventory.getItemInOffHand() : inventory.getItemInMainHand();
             if (!unchangedOnOpen(original, held)) return;
             if (hand == EquipmentSlot.OFF_HAND) {
-                player.getInventory().setItemInOffHand(opened);
+                inventory.setItemInOffHand(opened);
             } else {
-                player.getInventory().setItemInMainHand(opened);
+                inventory.setItemInMainHand(opened);
             }
             sendMessage(player, LetterConfig.openedMessage);
         });
