@@ -13,10 +13,12 @@ import java.util.logging.Logger;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.Statistic;
 import org.bukkit.entity.Player;
-import org.bukkit.event.block.Action;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.player.PlayerEditBookEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerStatisticIncrementEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -189,7 +191,7 @@ class LetterListenerTest {
         for (EquipmentSlot hand : List.of(EquipmentSlot.HAND, EquipmentSlot.OFF_HAND)) {
             for (String change : List.of("replaced", "mutated", "amount", "offline")) {
                 setup();
-                PlayerInteractEvent event = openEvent(hand);
+                PlayerStatisticIncrementEvent event = openEvent(hand);
                 try (var bukkit = mockBukkit();
                      var factories = mockConstruction(LetterItems.class, (items, context) -> {
                          when(items.isSealedLetter(original)).thenReturn(true);
@@ -214,7 +216,7 @@ class LetterListenerTest {
     @Test void openingStillReplacesOnlyTheRecordedHand() {
         for (EquipmentSlot hand : List.of(EquipmentSlot.HAND, EquipmentSlot.OFF_HAND)) {
             setup();
-            PlayerInteractEvent event = openEvent(hand);
+            PlayerStatisticIncrementEvent event = openEvent(hand);
             try (var bukkit = mockBukkit();
                  var factories = mockConstruction(LetterItems.class, (items, context) -> {
                      when(items.isSealedLetter(original)).thenReturn(true);
@@ -235,10 +237,49 @@ class LetterListenerTest {
         }
     }
 
+    @Test void onlyAnOpenedWrittenBookBreaksTheSeal() {
+        // A click that opens a barrel, uses a door or fills a lectern never counts the book as used.
+        for (var counted : List.of(
+                Map.entry(Statistic.DROP, Material.WRITTEN_BOOK),
+                Map.entry(Statistic.PICKUP, Material.WRITTEN_BOOK),
+                Map.entry(Statistic.USE_ITEM, Material.WRITABLE_BOOK),
+                Map.entry(Statistic.USE_ITEM, Material.BARREL))) {
+            setup();
+            PlayerStatisticIncrementEvent event = statisticEvent(counted.getKey(), counted.getValue(), EquipmentSlot.HAND);
+            try (var bukkit = mockBukkit(); var factories = successfulFactories()) {
+                new LetterListener(plugin).onBookOpen(event);
+                verifyNoInteractions(factories.constructed().getFirst());
+                assertTrue(pending.isEmpty());
+                verifyNoWrites();
+            }
+        }
+    }
+
+    @Test void aMainHandWrittenBookIsTheOneReadNotAnOffHandLetter() {
+        PlayerStatisticIncrementEvent event = openEvent(EquipmentSlot.OFF_HAND);
+        ItemStack book = stackOf(Material.WRITTEN_BOOK);
+        held(EquipmentSlot.HAND, book);
+        try (var bukkit = mockBukkit(); var factories = successfulFactories()) {
+            new LetterListener(plugin).onBookOpen(event);
+            LetterItems factory = factories.constructed().getFirst();
+            verify(factory).isSealedLetter(book);
+            verify(factory, never()).isSealedLetter(original);
+            assertTrue(pending.isEmpty());
+            verifyNoWrites();
+        }
+    }
+
+    @Test void openingListensLastAndAlsoToCancelledCounts() throws NoSuchMethodException {
+        EventHandler handler = LetterListener.class
+                .getMethod("onBookOpen", PlayerStatisticIncrementEvent.class).getAnnotation(EventHandler.class);
+        assertEquals(EventPriority.MONITOR, handler.priority());
+        assertFalse(handler.ignoreCancelled());
+    }
+
     @Test void openingAllowsOnlyTheVanillaResolvedFlagToChange() {
         for (String change : List.of("resolved", "pages", "pdc", "name", "type", "amount", "already-resolved")) {
             setup();
-            PlayerInteractEvent event = openEvent(EquipmentSlot.HAND);
+            PlayerStatisticIncrementEvent event = openEvent(EquipmentSlot.HAND);
             BookMeta beforeMeta = mock(BookMeta.class);
             Map<String, Object> before = new HashMap<>(Map.of(
                     "meta-type", "BOOK_SIGNED", "pages", List.of("original text"),
@@ -256,7 +297,6 @@ class LetterListenerTest {
                 case "pages" -> after.put("pages", List.of("other letter"));
                 case "pdc" -> after.put("PublicBukkitValues", Map.of("tfmccore:sealed_letter", 2));
                 case "name" -> after.put("display-name", "Another name");
-                case "type" -> when(original.getType()).thenReturn(Material.WRITABLE_BOOK);
                 case "amount" -> when(original.getAmount()).thenReturn(2);
                 case "already-resolved" -> before.put("resolved", true);
             }
@@ -267,6 +307,8 @@ class LetterListenerTest {
                  })) {
                 bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
                 new LetterListener(plugin).onBookOpen(event);
+                // The held type decides which hand was read, so it may only change after the open.
+                if (change.equals("type")) when(original.getType()).thenReturn(Material.WRITABLE_BOOK);
                 pending.getLast().run();
                 if (change.equals("resolved")) verify(inventory).setItemInMainHand(replacement);
                 else verify(inventory, never()).setItemInMainHand(any());
@@ -291,7 +333,7 @@ class LetterListenerTest {
     }
 
     @Test void failedOpeningKeepsTheOriginalSealAndReportsTheFailure() {
-        PlayerInteractEvent event = openEvent(EquipmentSlot.OFF_HAND);
+        PlayerStatisticIncrementEvent event = openEvent(EquipmentSlot.OFF_HAND);
         try (var bukkit = mockBukkit();
              var factories = mockConstruction(LetterItems.class, (items, context) -> {
                  when(items.isSealedLetter(original)).thenReturn(true);
@@ -367,7 +409,7 @@ class LetterListenerTest {
         try (var bukkit = mockBukkit(); var factories = successfulFactories()) {
             LetterListener listener = new LetterListener(plugin);
             if (operation.equals("open")) {
-                PlayerInteractEvent event = openEvent(EquipmentSlot.HAND);
+                PlayerStatisticIncrementEvent event = openEvent(EquipmentSlot.HAND);
                 listener.onBookOpen(event);
                 verify(event, never()).setCancelled(anyBoolean());
             } else {
@@ -400,7 +442,7 @@ class LetterListenerTest {
     private void schedule(String operation) {
         LetterListener listener = new LetterListener(plugin);
         if (operation.equals("open")) {
-            PlayerInteractEvent event = openEvent(EquipmentSlot.HAND);
+            PlayerStatisticIncrementEvent event = openEvent(EquipmentSlot.HAND);
             listener.onBookOpen(event);
             verify(event, never()).setCancelled(anyBoolean());
         } else {
@@ -439,15 +481,26 @@ class LetterListenerTest {
         return event;
     }
 
-    private PlayerInteractEvent openEvent(EquipmentSlot hand) {
-        PlayerInteractEvent event = mock(PlayerInteractEvent.class);
-        when(event.getAction()).thenReturn(Action.RIGHT_CLICK_AIR);
+    private PlayerStatisticIncrementEvent openEvent(EquipmentSlot hand) {
+        return statisticEvent(Statistic.USE_ITEM, Material.WRITTEN_BOOK, hand);
+    }
+
+    private PlayerStatisticIncrementEvent statisticEvent(Statistic statistic, Material material, EquipmentSlot hand) {
+        PlayerStatisticIncrementEvent event = mock(PlayerStatisticIncrementEvent.class);
+        when(event.getStatistic()).thenReturn(statistic);
+        when(event.getMaterial()).thenReturn(material);
         when(event.getPlayer()).thenReturn(player);
-        when(event.getHand()).thenReturn(hand);
-        when(event.getItem()).thenReturn(original);
+        when(original.getType()).thenReturn(Material.WRITTEN_BOOK);
         when(original.getItemMeta()).thenReturn(edited);
         held(hand, original);
+        if (hand == EquipmentSlot.OFF_HAND) held(EquipmentSlot.HAND, stackOf(Material.AIR));
         return event;
+    }
+
+    private static ItemStack stackOf(Material type) {
+        ItemStack stack = mock(ItemStack.class);
+        when(stack.getType()).thenReturn(type);
+        return stack;
     }
 
     private void held(EquipmentSlot hand, ItemStack stack) {
