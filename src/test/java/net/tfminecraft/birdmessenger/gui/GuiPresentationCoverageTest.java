@@ -203,6 +203,7 @@ class GuiPresentationCoverageTest {
                 Map<Integer, ItemStack> slots = new HashMap<>();
                 contents.put(inventory, slots);
                 when(inventory.getHolder()).thenReturn(holder);
+                when(inventory.getHolder(false)).thenReturn(holder);
                 when(inventory.getSize()).thenReturn(size);
                 doAnswer(
                         set -> {

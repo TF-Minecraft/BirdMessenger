@@ -12,6 +12,7 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -121,8 +122,9 @@ public final class SendSessionManager {
 			}
 		}
 		Inventory top = player.getOpenInventory().getTopInventory();
-		if ((top.getHolder() instanceof LetterGui gui && gui.session() == session)
-				|| (top.getHolder() instanceof CharacterPickerGui picker && picker.session() == session)) {
+		InventoryHolder holder = top.getHolder(false);
+		if ((holder instanceof LetterGui gui && gui.session() == session)
+				|| (holder instanceof CharacterPickerGui picker && picker.session() == session)) {
 			player.closeInventory();
 		}
 		if (!returned.isEmpty() && canReturn(player, session, ending)) {

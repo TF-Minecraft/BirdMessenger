@@ -86,6 +86,7 @@ class SendSessionManagerTest {
             LetterGui gui = mock(LetterGui.class);
             when(gui.session()).thenReturn(session);
             when(f.top.getHolder()).thenReturn(gui);
+            when(f.top.getHolder(false)).thenReturn(gui);
             session.setLetterInventory(f.top);
             when(f.top.getItem(LetterGui.LETTER_SLOT)).thenReturn(f.letter);
             f.current.set(null);
@@ -130,6 +131,7 @@ class SendSessionManagerTest {
             CharacterPickerGui picker = mock(CharacterPickerGui.class);
             when(picker.session()).thenReturn(session);
             when(f.top.getHolder()).thenReturn(picker);
+            when(f.top.getHolder(false)).thenReturn(picker);
             session.setLetter(f.letter);
             f.sessions.close();
             verify(f.inventory).addItem(f.letter);
