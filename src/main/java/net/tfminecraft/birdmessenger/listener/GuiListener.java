@@ -12,6 +12,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 
 import net.tfminecraft.birdmessenger.BirdMessenger;
@@ -34,7 +35,8 @@ public final class GuiListener implements Listener {
 		if (!(event.getWhoClicked() instanceof Player player)) {
 			return;
 		}
-		if (event.getView().getTopInventory().getHolder() instanceof LetterGui gui) {
+		InventoryHolder holder = event.getView().getTopInventory().getHolder(false);
+		if (holder instanceof LetterGui gui) {
 			if (!plugin.sessions().isCurrent(player, gui.session())) {
 				event.setCancelled(true);
 				return;
@@ -42,7 +44,7 @@ public final class GuiListener implements Listener {
 			handleLetterClick(event, player);
 			return;
 		}
-		if (event.getView().getTopInventory().getHolder() instanceof CharacterPickerGui picker) {
+		if (holder instanceof CharacterPickerGui picker) {
 			handlePickerClick(event, player, picker);
 		}
 	}
@@ -53,7 +55,8 @@ public final class GuiListener implements Listener {
 			return;
 		}
 		Inventory top = event.getView().getTopInventory();
-		if (top.getHolder() instanceof LetterGui gui) {
+		InventoryHolder holder = top.getHolder(false);
+		if (holder instanceof LetterGui gui) {
 			if (!plugin.sessions().isCurrent(player, gui.session())) {
 				event.setCancelled(true);
 				return;
@@ -80,7 +83,7 @@ public final class GuiListener implements Listener {
 			}
 			return;
 		}
-		if (top.getHolder() instanceof CharacterPickerGui) {
+		if (holder instanceof CharacterPickerGui) {
 			event.setCancelled(true);
 		}
 	}
@@ -90,7 +93,8 @@ public final class GuiListener implements Listener {
 		if (!(event.getPlayer() instanceof Player player)) {
 			return;
 		}
-		if (event.getInventory().getHolder() instanceof LetterGui gui) {
+		InventoryHolder holder = event.getInventory().getHolder(false);
+		if (holder instanceof LetterGui gui) {
 			SendSession session = gui.session();
 			if (!plugin.sessions().isCurrent(player, session)) {
 				plugin.sessions().returnLetter(player, session, false);
@@ -106,7 +110,7 @@ public final class GuiListener implements Listener {
 			Bukkit.getScheduler().runTask(plugin, () -> plugin.openPicker(player, session));
 			return;
 		}
-		if (event.getInventory().getHolder() instanceof CharacterPickerGui picker) {
+		if (holder instanceof CharacterPickerGui picker) {
 			plugin.sessions().returnLetter(player, picker.session(), true);
 		}
 	}
@@ -142,7 +146,7 @@ public final class GuiListener implements Listener {
 				}
 				Bukkit.getScheduler().runTaskLater(plugin, () -> {
 					// The player may already have closed this GUI and moved on to another one.
-					if (plugin.sessions().isCurrent(player, ((LetterGui) top.getHolder()).session())
+					if (plugin.sessions().isCurrent(player, ((LetterGui) top.getHolder(false)).session())
 							&& player.getOpenInventory().getTopInventory() == top) {
 						player.closeInventory();
 					}

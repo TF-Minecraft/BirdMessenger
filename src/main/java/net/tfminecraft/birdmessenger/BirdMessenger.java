@@ -140,7 +140,7 @@ public final class BirdMessenger extends JavaPlugin {
 		if (!sessions.isCurrent(player, session) || session.getLetter() == null || session.isConfirmed()) {
 			return;
 		}
-		if (player.getOpenInventory().getTopInventory().getHolder() instanceof CharacterPickerGui) {
+		if (player.getOpenInventory().getTopInventory().getHolder(false) instanceof CharacterPickerGui) {
 			return;
 		}
 		if (!Bukkit.getPluginManager().isPluginEnabled("RPCharacters")) {
@@ -170,7 +170,7 @@ public final class BirdMessenger extends JavaPlugin {
 
 	private void refreshPickerHeads(Player player, CharacterPickerGui picker) {
 		if (!sessions.isCurrent(player, picker.session())
-				|| player.getOpenInventory().getTopInventory().getHolder() != picker) {
+				|| player.getOpenInventory().getTopInventory().getHolder(false) != picker) {
 			return;
 		}
 		SendSession session = picker.session();

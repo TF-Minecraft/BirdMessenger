@@ -111,6 +111,7 @@ class GuiListenerCoverageTest {
         .setItem(anyInt(), any());
     top = mock(Inventory.class);
     when(top.getHolder()).thenReturn(mock(LetterGui.class));
+    when(top.getHolder(false)).thenReturn(mock(LetterGui.class));
     when(top.getSize()).thenReturn(9);
     when(top.getMaxStackSize()).thenReturn(64);
     when(top.getItem(anyInt())).thenAnswer(call -> topItems[call.getArgument(0)]);
@@ -152,6 +153,7 @@ class GuiListenerCoverageTest {
     LetterGui letterGui = mock(LetterGui.class);
     when(letterGui.session()).thenReturn(initialSession);
     when(top.getHolder()).thenReturn(letterGui);
+    when(top.getHolder(false)).thenReturn(letterGui);
     letterItems = mockStatic(LetterItems.class);
     letterItems
         .when(() -> LetterItems.isLetter(eq(config), any()))
@@ -331,6 +333,7 @@ class GuiListenerCoverageTest {
     assertFalse(click.isCancelled());
     assertFalse(drag.isCancelled());
     when(top.getHolder()).thenReturn(null);
+    when(top.getHolder(false)).thenReturn(null);
     listener.onClick(click(null, InventoryAction.PLACE_ALL, ClickType.LEFT));
     listener.onDrag(drag(null, Map.of()));
     listener.onClose(closeEvent());
@@ -860,6 +863,7 @@ class GuiListenerCoverageTest {
         when(nextHolder.session()).thenReturn(next);
         Inventory nextInventory = mock(Inventory.class);
         when(nextInventory.getHolder()).thenReturn(nextHolder);
+        when(nextInventory.getHolder(false)).thenReturn(nextHolder);
         openTop.set(nextInventory);
         listener.onClose(closeEvent());
         ItemGive.giveOrDrop(player, letter);
@@ -901,6 +905,7 @@ class GuiListenerCoverageTest {
       when(nextHolder.session()).thenReturn(next);
       Inventory nextInventory = mock(Inventory.class);
       when(nextInventory.getHolder()).thenReturn(nextHolder);
+      when(nextInventory.getHolder(false)).thenReturn(nextHolder);
       openTop.set(nextInventory);
       listener.onClose(closeEvent());
       throw failure;
@@ -980,6 +985,7 @@ class GuiListenerCoverageTest {
     when(picker.session()).thenReturn(session);
     when(picker.getInventory()).thenReturn(top);
     when(top.getHolder()).thenReturn(picker);
+    when(top.getHolder(false)).thenReturn(picker);
     when(top.getSize()).thenReturn(54);
     return picker;
   }
