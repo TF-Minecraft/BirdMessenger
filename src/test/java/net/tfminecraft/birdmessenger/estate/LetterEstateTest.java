@@ -56,6 +56,7 @@ class LetterEstateTest {
   private LetterEstate estate;
   private boolean guard = true;
   private final Map<UUID, CharacterStatus> statuses = new HashMap<>();
+  private final Map<UUID, String> aliases = new HashMap<>();
 
   @BeforeEach
   void setup() {
@@ -73,6 +74,7 @@ class LetterEstateTest {
     statuses.put(DEAD_WRITER.characterId(), CharacterStatus.DEAD);
     estate.characters = id -> Optional.ofNullable(statuses.get(id)).map(status -> new CharacterInfo(
         id.equals(WRITER.characterId()) ? WRITER : DEAD_WRITER, "Writer", status, null, Set.of(), 0, null));
+    estate.publicNames = id -> Optional.ofNullable(aliases.get(id));
   }
 
   @AfterEach
@@ -200,6 +202,15 @@ class LetterEstateTest {
     estate.reconcile();
 
     assertEquals(List.of(DEATH), reported);
+  }
+
+  @Test
+  void describeNamesTheWriterByTheAliasPlayersKnow() {
+    UUID id = send(WRITER);
+    aliases.put(WRITER.characterId(), "Hooded Stranger");
+
+    assertEquals(List.of("Letter " + id.toString().substring(0, 8) + " from Hooded Stranger"),
+        estate.describe(DEAD.characterId()).labels());
   }
 
   @Test

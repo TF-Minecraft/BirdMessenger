@@ -57,6 +57,7 @@ public final class LetterEstate implements EstateParticipant {
 	Supplier<List<EstateDecision>> decided = Estates::decided;
 	Reporter reporter = Estates::report;
 	Function<UUID, Optional<CharacterInfo>> characters = Characters::info;
+	Function<UUID, Optional<String>> publicNames = LetterEstate::publicName;
 	// The last outcome reported per death, so the hourly pass reports only changes.
 	private final Map<UUID, Map.Entry<Long, Outcome>> reported = new HashMap<>();
 
@@ -161,8 +162,18 @@ public final class LetterEstate implements EstateParticipant {
 		} catch (IllegalArgumentException ex) {
 			writer = Optional.empty();
 		}
-		return writer.map(info -> name + " from " + info.name() + (info.alive() ? "" : " (dead)"))
-				.orElse(name + " from an unknown writer");
+		// Letters are roleplay, so the writer goes by the alias players know, not the private real name.
+		return writer.map(info -> name + " from " + publicNames.apply(info.ref().characterId()).orElse(info.name())
+				+ (info.alive() ? "" : " (dead)")).orElse(name + " from an unknown writer");
+	}
+
+	/** The writer's alias, else real name; empty on a TLibs older than 2.8.0, which has no aliases. */
+	static Optional<String> publicName(UUID characterId) {
+		try {
+			return Characters.publicName(characterId);
+		} catch (NoSuchMethodError olderTLibs) {
+			return Optional.empty();
+		}
 	}
 
 	/** Settles every decided estate whose guard holds and reports outcomes that changed. */
