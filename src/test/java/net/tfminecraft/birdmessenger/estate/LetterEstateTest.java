@@ -214,6 +214,19 @@ class LetterEstateTest {
   }
 
   @Test
+  void publicNameAsksTLibsAndKeepsTheRealNameOnAnOlderTLibs() {
+    try (MockedStatic<net.tfminecraft.tlibs.character.Characters> characters =
+        mockStatic(net.tfminecraft.tlibs.character.Characters.class)) {
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.publicName(WRITER.characterId()))
+          .thenReturn(Optional.of("Hooded Stranger"));
+      assertEquals(Optional.of("Hooded Stranger"), LetterEstate.publicName(WRITER.characterId()));
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.publicName(WRITER.characterId()))
+          .thenThrow(new NoSuchMethodError("publicName"));
+      assertEquals(Optional.empty(), LetterEstate.publicName(WRITER.characterId()));
+    }
+  }
+
+  @Test
   void describeListsWaitingLettersAndWhoWroteThem() {
     UUID id = send(WRITER);
     store.addPending(dead(), new PendingLetter(DEAD.ownerId(), WRITER.ownerId(), "Dead", letter("Old")));
