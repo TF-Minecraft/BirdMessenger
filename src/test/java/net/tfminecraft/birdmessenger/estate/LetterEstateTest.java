@@ -56,6 +56,7 @@ class LetterEstateTest {
   private LetterEstate estate;
   private boolean guard = true;
   private final Map<UUID, CharacterStatus> statuses = new HashMap<>();
+  private final Map<UUID, String> aliases = new HashMap<>();
 
   @BeforeEach
   void setup() {
@@ -73,6 +74,7 @@ class LetterEstateTest {
     statuses.put(DEAD_WRITER.characterId(), CharacterStatus.DEAD);
     estate.characters = id -> Optional.ofNullable(statuses.get(id)).map(status -> new CharacterInfo(
         id.equals(WRITER.characterId()) ? WRITER : DEAD_WRITER, "Writer", status, null, Set.of(), 0, null));
+    estate.publicNames = id -> Optional.ofNullable(aliases.get(id));
   }
 
   @AfterEach
@@ -200,6 +202,28 @@ class LetterEstateTest {
     estate.reconcile();
 
     assertEquals(List.of(DEATH), reported);
+  }
+
+  @Test
+  void describeNamesTheWriterByTheAliasPlayersKnow() {
+    UUID id = send(WRITER);
+    aliases.put(WRITER.characterId(), "Hooded Stranger");
+
+    assertEquals(List.of("Letter " + id.toString().substring(0, 8) + " from Hooded Stranger"),
+        estate.describe(DEAD.characterId()).labels());
+  }
+
+  @Test
+  void publicNameAsksTLibsAndKeepsTheRealNameOnAnOlderTLibs() {
+    try (MockedStatic<net.tfminecraft.tlibs.character.Characters> characters =
+        mockStatic(net.tfminecraft.tlibs.character.Characters.class)) {
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.publicName(WRITER.characterId()))
+          .thenReturn(Optional.of("Hooded Stranger"));
+      assertEquals(Optional.of("Hooded Stranger"), LetterEstate.publicName(WRITER.characterId()));
+      characters.when(() -> net.tfminecraft.tlibs.character.Characters.publicName(WRITER.characterId()))
+          .thenThrow(new NoSuchMethodError("publicName"));
+      assertEquals(Optional.empty(), LetterEstate.publicName(WRITER.characterId()));
+    }
   }
 
   @Test
